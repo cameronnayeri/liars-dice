@@ -160,6 +160,7 @@ function renderSettingsPanel() {
       <div>Ones Wild: <b>${s.onesWild ? 'Yes' : 'No'}</b></div>
       <div>Spot-On: <b>${s.spotOnEnabled ? 'Enabled' : 'Disabled'}</b></div>
       ${s.mode === 'perudo' ? `<div>Palafico: <b>${s.palaficoEnabled ? 'Enabled' : 'Disabled'}</b></div>` : ''}
+      <div>Unlimited Dice: <b>${s.unlimitedDice ? 'Yes' : 'No'}</b></div>
       <div>Max Players: <b>${s.maxPlayers}</b></div>
     `;
   }
@@ -171,6 +172,7 @@ function renderSettingsPanel() {
     document.getElementById('s-oneswild').checked = s.onesWild;
     document.getElementById('s-spoton').checked = s.spotOnEnabled;
     document.getElementById('s-palafico').checked = s.palaficoEnabled;
+    document.getElementById('s-unlimiteddice').checked = !!s.unlimitedDice;
     document.getElementById('s-maxplayers').value = String(s.maxPlayers);
     syncSettingsUI();
   }
@@ -206,7 +208,7 @@ function renderFooter() {
 function setupSettings() {
   if (!myPlayer?.is_host) return;
 
-  const inputs = ['s-mode', 's-dice', 's-oneswild', 's-spoton', 's-palafico', 's-maxplayers'];
+  const inputs = ['s-mode', 's-dice', 's-oneswild', 's-spoton', 's-palafico', 's-unlimiteddice', 's-maxplayers'];
   inputs.forEach(id => {
     document.getElementById(id)?.addEventListener('change', () => {
       syncSettingsUI();
@@ -226,6 +228,7 @@ async function saveSettings() {
     onesWild: mode === 'perudo' ? document.getElementById('s-oneswild').checked : false,
     spotOnEnabled: document.getElementById('s-spoton').checked,
     palaficoEnabled: mode === 'perudo' ? document.getElementById('s-palafico').checked : false,
+    unlimitedDice: document.getElementById('s-unlimiteddice').checked,
     maxPlayers: parseInt(document.getElementById('s-maxplayers').value),
   };
 

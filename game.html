@@ -16,39 +16,37 @@
       <div class="game-header__meta">
         <span class="round-badge" id="round-badge">Round —</span>
         <span class="palafico-badge" id="palafico-badge">⚑ Palafico</span>
+        <button class="sound-toggle" id="sound-toggle" title="Toggle sound">🔊</button>
+        <button class="dev-btn" id="dev-toggle" title="Dev mode">🔧 DEV</button>
         <button class="btn btn--ghost btn--sm" id="leave-btn">Leave</button>
       </div>
     </header>
 
     <div class="game-main">
-      <!-- Players row -->
-      <div class="players-row" id="players-row">
-        <!-- filled by JS -->
-      </div>
-
-      <!-- Center content -->
-      <div class="game-center">
-        <!-- Turn indicator -->
-        <div class="turn-indicator other-turn" id="turn-indicator">Waiting…</div>
-
-        <!-- Current bid display -->
-        <div class="bid-display" id="bid-display">
-          <div class="bid-display__label">Current Bid</div>
-          <div class="bid-display__value" id="bid-value">
-            <span class="bid-display__no-bid">— No Bid Yet —</span>
+      <!-- Circular table -->
+      <div class="game-table-wrapper">
+        <div class="game-table" id="game-table">
+          <div class="table-felt"></div>
+          <div class="spotlight-beam" id="spotlight-beam"></div>
+          <div class="table-players" id="table-players"></div>
+          <div class="table-center" id="table-center">
+            <div class="turn-indicator other-turn" id="turn-indicator">Waiting…</div>
+            <div class="bid-display" id="bid-display">
+              <div class="bid-display__label">Current Bid</div>
+              <div class="bid-display__value" id="bid-value">
+                <span class="bid-display__no-bid">— No Bid —</span>
+              </div>
+              <div class="bid-display__by" id="bid-by"></div>
+            </div>
           </div>
-          <div class="bid-display__by" id="bid-by"></div>
         </div>
       </div>
 
       <!-- Your dice + controls -->
       <div class="your-dice-section">
         <div class="your-dice-section__label">Your Dice</div>
-        <div class="your-dice-row" id="your-dice-row">
-          <!-- filled by JS -->
-        </div>
+        <div class="your-dice-row" id="your-dice-row"></div>
 
-        <!-- Bid controls (hidden until your turn) -->
         <div class="bid-controls" id="bid-controls">
           <div class="bid-inputs">
             <div class="count-input">
@@ -71,29 +69,23 @@
               </div>
             </div>
           </div>
-
           <div class="action-btns" id="action-btns">
             <button class="btn btn--primary" id="bid-btn">Raise Bid</button>
             <button class="btn btn--liar hidden" id="liar-btn">☠ LIAR!</button>
             <button class="btn btn--spoton hidden" id="spoton-btn">🎯 Spot On!</button>
           </div>
-
-          <!-- Bid error msg -->
           <div id="bid-error" class="hidden" style="color:var(--red-bright);font-size:0.8rem;letter-spacing:0.08em"></div>
-
-          <!-- Host: skip disconnected player -->
           <div class="skip-btn-wrap" id="skip-btn-wrap">
             <button class="btn btn--danger btn--sm" id="skip-btn">⏭ Skip Player (Host)</button>
           </div>
         </div>
 
-        <!-- Waiting / rolling message -->
         <div id="waiting-panel" class="hidden" style="padding:8px 0;color:var(--text-dim);font-size:0.85rem;letter-spacing:0.1em;font-family:var(--font-title)">
           Waiting for your turn…
         </div>
 
         <!-- Emote bar -->
-        <div class="emote-bar" style="margin-top:12px;padding:0;border:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-top:12px">
           <button class="emote-toggle" id="emote-toggle" title="Emotes">😈</button>
           <div class="emote-picker" id="emote-picker" style="display:none">
             <button class="emote-btn" data-emote="💀">💀</button>
@@ -112,15 +104,10 @@
         </div>
       </div>
 
-      <!-- Log panel -->
+      <!-- Game log panel -->
       <aside class="game-log-panel">
-        <div class="game-log-panel__header">
-          <span>Game Log</span>
-        </div>
+        <div class="game-log-panel__header"><span>Game Log</span></div>
         <div class="game-log-entries" id="game-log"></div>
-        <div class="emote-bar">
-          <!-- mobile emote access via log panel -->
-        </div>
       </aside>
     </div>
   </div>
@@ -128,7 +115,7 @@
   <!-- ── REVEAL OVERLAY ── -->
   <div id="reveal-overlay">
     <div class="reveal-title" id="reveal-title">The Truth Comes To Light</div>
-    <div class="reveal-subtitle show" id="reveal-subtitle">The dice do not lie</div>
+    <div class="reveal-subtitle show">The dice do not lie</div>
     <div class="reveal-players" id="reveal-players"></div>
     <div class="reveal-tally" id="reveal-tally">
       <div class="reveal-tally__bid" id="tally-bid-label"></div>
@@ -138,16 +125,14 @@
       <div class="reveal-result__headline" id="result-headline"></div>
       <div class="reveal-result__detail" id="result-detail"></div>
     </div>
-    <div class="reveal-close-hint" id="reveal-close-hint" style="display:none">
-      — Continuing next round —
-    </div>
+    <div class="reveal-close-hint" id="reveal-close-hint" style="display:none">— Continuing next round —</div>
   </div>
 
   <!-- ── GAME OVER OVERLAY ── -->
   <div id="gameover-overlay">
     <div class="gameover-skull">💀</div>
     <div class="gameover-title">The Last One Standing</div>
-    <div class="gameover-winner" id="gameover-winner" style="color:var(--red);text-shadow:0 0 30px var(--red-glow)"></div>
+    <div class="gameover-winner" id="gameover-winner"></div>
     <div class="gameover-subtitle">survives</div>
     <div class="gameover-actions">
       <button class="btn btn--primary" id="play-again-btn">Play Again</button>
@@ -155,9 +140,37 @@
     </div>
   </div>
 
+  <!-- ── DEV PANEL ── -->
+  <div id="dev-panel">
+    <div class="dev-panel__header">
+      <span>🔧 Dev Mode</span>
+      <button class="btn--dev-remove" id="dev-close">✕</button>
+    </div>
+    <div class="dev-panel__body">
+      <div>
+        <div class="dev-section-title">All Dice (you + bots)</div>
+        <div id="dev-dice-display"></div>
+      </div>
+      <div>
+        <div class="dev-section-title">Bots</div>
+        <div class="bot-list" id="bot-list"></div>
+        <button class="btn btn--sm" id="add-bot-btn" style="width:100%;border-color:#3a1a5a;color:#b06aff">+ Add Bot</button>
+        <div style="font-size:0.7rem;color:var(--text-muted);margin-top:6px" id="bot-status-msg"></div>
+      </div>
+      <div>
+        <div class="dev-section-title">Homebrew</div>
+        <div style="font-size:0.8rem;color:var(--text-dim)">
+          Unlimited dice on Spot-On:
+          <b id="dev-unlimited-status" style="color:var(--gold)">—</b>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/client.js"></script>
+  <script src="js/sounds.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

@@ -6,20 +6,23 @@ const sb         = getSB();
 const lobbyCode  = localStorage.getItem('lobbyCode');
 const myPlayerId = localStorage.getItem('playerId');
 
-let players       = [];
-let lobby         = null;
-let myPlayer      = null;
-let myDice        = [];
-let prevPhase     = null;
+let players          = [];
+let lobby            = null;
+let myPlayer         = null;
+let myDice           = [];
+let prevPhase        = null;
 let waitingForReveal = false;
 let broadcastChannel = null;
-let skipTimer     = null;
+let skipTimer        = null;
+let botTurnTimer     = null;
 
-// Selected bid state
+// Bid state
 let bidCount = 1;
 let bidFace  = 2;
 
-const EMOTES = ['💀','👻','😂','😱','🔥','👁️','🤔','🎯','🤡','😈','🍀','☠️'];
+// Bot constants
+const BOT_NAMES   = ['Petrov','Volkov','Sokolov','Kozlov','Lebedev','Morozov','Novikov','Popov'];
+const BOT_COLORS  = ['#8b1a1a','#1a4a8b','#2a6a2a','#6a2a8a','#8a6a1a','#1a6a6a','#8a3a1a','#4a1a6a'];
 
 // ── Notification ──────────────────────────────────────────────
 const notifEl = document.getElementById('notification');
@@ -33,46 +36,30 @@ function showNotif(msg, type = 'info') {
 
 // ── Boot ──────────────────────────────────────────────────────
 async function init() {
-  if (!lobbyCode || !myPlayerId) {
-    window.location.href = 'index.html';
-    return;
-  }
+  if (!lobbyCode || !myPlayerId) { window.location.href = 'index.html'; return; }
 
-  // Restore dice from localStorage if we have them
   const stored = localStorage.getItem('myDice');
   if (stored) myDice = JSON.parse(stored);
 
-  // Load data
   const [{ data: lobbyData }, { data: playerData }] = await Promise.all([
     sb.from('lobbies').select('*').eq('code', lobbyCode).maybeSingle(),
     sb.from('players').select('*').eq('lobby_code', lobbyCode).order('seat_order')
   ]);
 
-  if (!lobbyData) {
-    alert('Game not found');
-    window.location.href = 'index.html';
-    return;
-  }
+  if (!lobbyData) { alert('Game not found'); window.location.href = 'index.html'; return; }
 
   lobby   = lobbyData;
   players = playerData || [];
   myPlayer = players.find(p => p.id === myPlayerId);
-
-  if (!myPlayer) {
-    alert('You are not in this game');
-    window.location.href = 'index.html';
-    return;
-  }
+  if (!myPlayer) { alert('You are not in this game'); window.location.href = 'index.html'; return; }
 
   wireUI();
   subscribeToLobby();
   subscribeToPlayers();
   broadcastChannel = subscribeToBroadcast();
 
-  // Handle current state
   await handleGameStateChange(lobby.game_state, null);
   renderAll();
-
   setInterval(pingLastSeen, 15000);
 }
 
@@ -85,11 +72,9 @@ async function fetchPlayers() {
   const { data } = await sb.from('players').select('*').eq('lobby_code', lobbyCode).order('seat_order');
   return data || [];
 }
-
 async function updateGameState(newState) {
   return sb.from('lobbies').update({ game_state: newState }).eq('code', lobbyCode);
 }
-
 async function pingLastSeen() {
   await sb.from('players').update({ last_seen: new Date().toISOString() }).eq('id', myPlayerId);
 }
@@ -97,87 +82,74 @@ async function pingLastSeen() {
 // ── Subscriptions ─────────────────────────────────────────────
 function subscribeToLobby() {
   sb.channel(`game-${lobbyCode}-lobby`)
-    .on('postgres_changes', {
-      event: 'UPDATE', schema: 'public', table: 'lobbies',
-      filter: `code=eq.${lobbyCode}`
-    }, ({ new: updated }) => {
-      if (!updated) return;
-      const oldPhase = lobby?.game_state?.phase;
-      lobby = updated;
-      handleGameStateChange(lobby.game_state, oldPhase);
-      renderAll();
-    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'lobbies', filter: `code=eq.${lobbyCode}` },
+      ({ new: updated }) => {
+        if (!updated) return;
+        const oldPhase = lobby?.game_state?.phase;
+        lobby = updated;
+        handleGameStateChange(lobby.game_state, oldPhase);
+        renderAll();
+      })
     .subscribe();
 }
-
 function subscribeToPlayers() {
   sb.channel(`game-${lobbyCode}-players`)
-    .on('postgres_changes', {
-      event: '*', schema: 'public', table: 'players',
-      filter: `lobby_code=eq.${lobbyCode}`
-    }, async () => {
-      players  = await fetchPlayers();
-      myPlayer = players.find(p => p.id === myPlayerId) || myPlayer;
-      renderAll();
-      checkAllDiceRevealed();
-    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `lobby_code=eq.${lobbyCode}` },
+      async () => {
+        players  = await fetchPlayers();
+        myPlayer = players.find(p => p.id === myPlayerId) || myPlayer;
+        renderAll();
+        checkAllDiceRevealed();
+      })
     .subscribe();
 }
-
 function subscribeToBroadcast() {
   return sb.channel(`game-${lobbyCode}-broadcast`)
-    .on('broadcast', { event: 'emote' }, ({ payload }) => {
-      receiveEmote(payload.playerId, payload.emote);
-    })
+    .on('broadcast', { event: 'emote' }, ({ payload }) => receiveEmote(payload.playerId, payload.emote))
     .subscribe();
 }
 
 // ── Main state machine ────────────────────────────────────────
 async function handleGameStateChange(gs, oldPhase) {
-  if (!gs || !gs.phase) return;
+  if (!gs?.phase) return;
   const phase = gs.phase;
   if (phase === prevPhase) return;
   prevPhase = phase;
-
   switch (phase) {
-    case 'rolling':         await enterRolling(gs); break;
-    case 'bidding':         enterBidding(gs); break;
+    case 'rolling':          await enterRolling(gs); break;
+    case 'bidding':          enterBidding(gs); break;
     case 'challenge_called': await enterChallengeCalled(gs); break;
-    case 'revealing':       await enterRevealing(gs); break;
-    case 'round_result':    await enterRoundResult(gs); break;
-    case 'game_over':       enterGameOver(gs); break;
+    case 'revealing':        await enterRevealing(gs); break;
+    case 'round_result':     await enterRoundResult(gs); break;
+    case 'game_over':        enterGameOver(gs); break;
   }
 }
 
 // ── Phase: ROLLING ────────────────────────────────────────────
 async function enterRolling(gs) {
+  SoundEngine.newRound();
   addLog(`— Round ${gs.round} —`, 'system');
 
-  // Check palafico
-  if (gs.palaficoActive) {
-    document.getElementById('palafico-badge').classList.add('active');
-    addLog('⚑ Palafico round — no wild ones', 'system');
-  } else {
-    document.getElementById('palafico-badge').classList.remove('active');
-  }
+  document.getElementById('palafico-badge').classList.toggle('active', !!gs.palaficoActive);
+  if (gs.palaficoActive) addLog('⚑ Palafico round — no wild ones', 'system');
 
   // Roll our dice
   const diceCount = myPlayer?.dice_count || lobby?.settings?.startingDice || 5;
   myDice = rollDice(diceCount);
   localStorage.setItem('myDice', JSON.stringify(myDice));
 
-  renderYourDice(myDice);
-  setTurnIndicator('rolling', 'Rolling dice…');
+  // In dev mode, publish our dice immediately for visibility
+  if (isDevMode()) {
+    await sb.from('players').update({ revealed_dice: myDice }).eq('id', myPlayerId);
+  }
 
-  // Show rolling animation on your dice
-  document.querySelectorAll('#your-dice-row .die').forEach(d => {
-    d.classList.add('die--rolling');
-    setTimeout(() => d.classList.remove('die--rolling'), 700);
-  });
+  renderYourDice(myDice, true);
+  setTurnIndicator('rolling', '🎲 Rolling dice…');
 
-  // Host auto-advances to bidding after 2.5s
+  // Host: roll for bots + advance to bidding
   if (myPlayer?.is_host) {
-    await delay(2500);
+    await rollBotDice(gs);
+    await delay(2200);
     const fresh = await fetchLobby();
     if (fresh?.game_state?.phase === 'rolling' && fresh.game_state.round === gs.round) {
       await updateGameState({ ...fresh.game_state, phase: 'bidding' });
@@ -188,43 +160,42 @@ async function enterRolling(gs) {
 // ── Phase: BIDDING ────────────────────────────────────────────
 function enterBidding(gs) {
   document.getElementById('reveal-overlay').classList.remove('active');
-  resetBidUI(gs);
   renderBidDisplay(gs.currentBid, gs);
   updateTurnUI(gs);
-}
 
-function resetBidUI(gs) {
-  // Set sensible default bid: one higher than current
+  // Reset default bid to one higher than current
   const cb = gs.currentBid;
-  if (!cb) {
-    bidCount = 1;
-    bidFace  = 2;
-  } else {
-    // Default: same face +1 count
-    bidCount = cb.count + 1;
-    bidFace  = cb.face;
-  }
+  bidCount = cb ? cb.count + 1 : 1;
+  bidFace  = cb ? cb.face : 2;
   refreshBidInputs();
+
+  // Bot turn?
+  if (myPlayer?.is_host) {
+    clearTimeout(botTurnTimer);
+    const currentId = gs.playerOrder?.[gs.currentPlayerIndex];
+    if (isBotPlayer(currentId)) {
+      botTurnTimer = setTimeout(() => takeBotTurn(gs), 1400 + Math.random() * 1400);
+    }
+  }
 }
 
 // ── Phase: CHALLENGE CALLED ───────────────────────────────────
 async function enterChallengeCalled(gs) {
-  addLog(
-    `${playerName(gs.challengerId)} called ${gs.challengeType === 'liar' ? '☠ LIAR' : '🎯 SPOT-ON'}!`,
-    gs.challengeType === 'liar' ? 'challenge' : 'spoton'
-  );
+  const type = gs.challengeType;
+  addLog(`${playerName(gs.challengerId)} called ${type === 'liar' ? '☠ LIAR' : '🎯 SPOT-ON'}!`,
+    type === 'liar' ? 'challenge' : 'spoton');
+  if (type === 'liar') SoundEngine.liar(); else SoundEngine.spotOnCall();
 
   setTurnIndicator('rolling', 'Revealing dice…');
   hideControls();
 
-  // Every player submits their own dice
   await revealMyDice();
 
-  // Host watches for all dice to be in, then advances
   if (myPlayer?.is_host) {
+    // Submit dice for all bots
+    await revealBotDice();
     waitingForReveal = true;
-    // Immediately check in case all are already in (small game)
-    setTimeout(checkAllDiceRevealed, 600);
+    setTimeout(checkAllDiceRevealed, 700);
   }
 }
 
@@ -240,53 +211,43 @@ async function checkAllDiceRevealed() {
 
   const activePlayers = players.filter(p => !p.is_eliminated);
   const allIn = activePlayers.every(p => p.revealed_dice !== null && p.revealed_dice !== undefined);
+  if (!allIn) return;
 
-  if (allIn) {
-    waitingForReveal = false;
-    const revealData = {};
-    activePlayers.forEach(p => { revealData[p.id] = p.revealed_dice; });
-    const gs = fresh.game_state;
-    const onesWild = fresh.settings.onesWild && fresh.settings.mode === 'perudo' && !gs.palaficoActive;
-    const actualCount = countFace(revealData, gs.currentBid.face, onesWild);
-    const roundResult = buildRoundResult(gs, revealData, actualCount, fresh.settings);
+  waitingForReveal = false;
+  const revealData = {};
+  activePlayers.forEach(p => { revealData[p.id] = p.revealed_dice; });
 
-    await updateGameState({ ...gs, phase: 'revealing', revealData, roundResult });
-  }
+  const gs = fresh.game_state;
+  const onesWild = fresh.settings.onesWild && fresh.settings.mode === 'perudo' && !gs.palaficoActive;
+  const actualCount = countFace(revealData, gs.currentBid.face, onesWild);
+  const roundResult = buildRoundResult(gs, actualCount);
+
+  await updateGameState({ ...gs, phase: 'revealing', revealData, roundResult });
 }
 
-function buildRoundResult(gs, revealData, actualCount, settings) {
+function buildRoundResult(gs, actualCount) {
   const { currentBid: bid, challengerId, challengeType } = gs;
   const bidderId = bid.playerId;
-  const bidCount = bid.count;
-
   if (challengeType === 'liar') {
-    if (actualCount < bidCount) {
-      // Liar confirmed — bidder was over
-      return { type: 'liar_correct', loserId: bidderId, gainerId: null, actualCount, bidCount };
-    } else {
-      // Bid holds — challenger was wrong
-      return { type: 'liar_wrong', loserId: challengerId, gainerId: null, actualCount, bidCount };
-    }
+    return actualCount < bid.count
+      ? { type: 'liar_correct', loserId: bidderId,    gainerId: null,       actualCount, bidCount: bid.count }
+      : { type: 'liar_wrong',   loserId: challengerId, gainerId: null,       actualCount, bidCount: bid.count };
   } else {
-    // Spot-on
-    if (actualCount === bidCount) {
-      return { type: 'spoton_correct', loserId: null, gainerId: challengerId, actualCount, bidCount };
-    } else {
-      return { type: 'spoton_wrong', loserId: challengerId, gainerId: null, actualCount, bidCount };
-    }
+    return actualCount === bid.count
+      ? { type: 'spoton_correct', loserId: null,        gainerId: challengerId, actualCount, bidCount: bid.count }
+      : { type: 'spoton_wrong',   loserId: challengerId, gainerId: null,        actualCount, bidCount: bid.count };
   }
 }
 
 // ── Phase: REVEALING ─────────────────────────────────────────
 async function enterRevealing(gs) {
-  const overlay = document.getElementById('reveal-overlay');
-  const titleEl = document.getElementById('reveal-title');
-  const playersEl = document.getElementById('reveal-players');
-  const tallyEl = document.getElementById('reveal-tally');
-  const resultEl = document.getElementById('reveal-result');
-  const hintEl = document.getElementById('reveal-close-hint');
+  const overlay    = document.getElementById('reveal-overlay');
+  const titleEl    = document.getElementById('reveal-title');
+  const playersEl  = document.getElementById('reveal-players');
+  const tallyEl    = document.getElementById('reveal-tally');
+  const resultEl   = document.getElementById('reveal-result');
+  const hintEl     = document.getElementById('reveal-close-hint');
 
-  // Reset overlay
   titleEl.classList.remove('show');
   playersEl.innerHTML = '';
   tallyEl.classList.remove('show');
@@ -300,16 +261,14 @@ async function enterRevealing(gs) {
   await delay(1100);
 
   const { revealData, currentBid, roundResult, palaficoActive } = gs;
-  const settings = lobby.settings;
-  const onesWild = settings.onesWild && settings.mode === 'perudo' && !palaficoActive;
-  const activePlayers = players.filter(p => !p.is_eliminated).sort((a, b) => {
-    const order = gs.playerOrder || [];
-    return order.indexOf(a.id) - order.indexOf(b.id);
-  });
+  const onesWild = lobby.settings.onesWild && lobby.settings.mode === 'perudo' && !palaficoActive;
 
-  // Reveal each player row
+  const order = gs.playerOrder || [];
+  const activePlayers = players.filter(p => !p.is_eliminated)
+    .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+
   for (const player of activePlayers) {
-    const dice = (revealData && revealData[player.id]) ? revealData[player.id] : [];
+    const dice = revealData?.[player.id] || [];
 
     const row = document.createElement('div');
     row.className = 'reveal-player-row';
@@ -322,85 +281,89 @@ async function enterRevealing(gs) {
     playersEl.appendChild(row);
     await delay(80);
     row.classList.add('show');
-    await delay(350);
+    await delay(300);
 
     const diceContainer = row.querySelector(`#reveal-dice-${player.id}`);
 
-    // Show all dice face-down first
-    dice.forEach(() => {
-      diceContainer.insertAdjacentHTML('beforeend', makeDieHTML(1, player.dice_color, { faceDown: true, size: 56 }));
-    });
+    // Show face-down first
+    for (let i = 0; i < dice.length; i++) {
+      diceContainer.insertAdjacentHTML('beforeend',
+        makeDieHTML(1, player.dice_color, { faceDown: true, size: 54 }));
+    }
 
-    // Flip one by one
+    // Flip one at a time
     const dieEls = diceContainer.querySelectorAll('.die');
     for (let i = 0; i < dieEls.length; i++) {
-      await delay(380);
+      await delay(360);
+      SoundEngine.flip();
       const val = dice[i];
       const isMatch = val === currentBid.face;
       const isWild  = onesWild && currentBid.face !== 1 && val === 1;
-      const highlight = isMatch || isWild;
 
-      // Rebuild die as face-up
       dieEls[i].classList.remove('die--facedown');
       dieEls[i].classList.add('die--flipping');
-      const pips = PIP_MAP[val] || PIP_MAP[1];
       const pipColor = lightenHex(player.dice_color, 0.85);
-      dieEls[i].innerHTML = pips.map(on =>
+      dieEls[i].innerHTML = (PIP_MAP[val] || PIP_MAP[1]).map(on =>
         `<div class="pip ${on ? 'pip--on' : 'pip--off'}" style="background:${pipColor}"></div>`
       ).join('');
       dieEls[i].dataset.value = val;
 
-      if (highlight) {
+      if (isMatch || isWild) {
         await delay(150);
+        SoundEngine.highlight();
         dieEls[i].classList.add('die--highlight');
       }
     }
-
-    await delay(300);
+    await delay(250);
   }
 
   // Tally
-  await delay(600);
+  await delay(550);
   const onesCount = onesWild ? countFace(revealData, 1, false) : 0;
   const faceCount = countFace(revealData, currentBid.face, false);
   const actual    = onesWild && currentBid.face !== 1 ? faceCount + onesCount : faceCount;
 
-  const tallyBid = document.getElementById('tally-bid-label');
-  const tallyCount = document.getElementById('tally-count');
-  tallyBid.textContent = `Bid: ${currentBid.count} × ${FACE_UNICODE[currentBid.face]} ${FACE_NAME[currentBid.face]}`;
+  document.getElementById('tally-bid-label').textContent =
+    `Bid: ${currentBid.count} × ${FACE_UNICODE[currentBid.face]} ${FACE_NAME[currentBid.face]}`;
   if (onesWild && currentBid.face !== 1) {
-    tallyCount.innerHTML = `<span class="actual">${actual} matching</span> <span class="needed"> (${faceCount} ${FACE_NAME[currentBid.face]} + ${onesCount} wild ones) / needed ${currentBid.count}</span>`;
+    document.getElementById('tally-count').innerHTML =
+      `<span class="actual">${actual} matching</span> <span class="needed"> (${faceCount} face + ${onesCount} wild) / needed ${currentBid.count}</span>`;
   } else {
-    tallyCount.innerHTML = `<span class="actual">${actual} ${FACE_NAME[currentBid.face]}</span> <span class="needed"> / needed ${currentBid.count}</span>`;
+    document.getElementById('tally-count').innerHTML =
+      `<span class="actual">${actual} ${FACE_NAME[currentBid.face]}</span> <span class="needed"> / needed ${currentBid.count}</span>`;
   }
   tallyEl.classList.add('show');
-  await delay(1200);
+  await delay(1100);
 
   // Result
   const rr = roundResult;
-  const loser = rr.loserId ? players.find(p => p.id === rr.loserId) : null;
+  const loser  = rr.loserId  ? players.find(p => p.id === rr.loserId)  : null;
   const gainer = rr.gainerId ? players.find(p => p.id === rr.gainerId) : null;
 
   let resultClass, headline, detail;
   if (rr.type === 'liar_correct') {
+    SoundEngine.roundWin();
     resultClass = 'result--correct';
     headline    = 'The Lie Exposed!';
-    detail      = `${escapeHtml(loser?.name || '?')} loses a die — the bid was false.`;
+    detail      = `${escapeHtml(loser?.name || '?')} loses a die.`;
     addLog(`☠ Liar confirmed! ${loser?.name} loses a die.`, 'result');
   } else if (rr.type === 'liar_wrong') {
+    SoundEngine.roundLose();
     resultClass = 'result--wrong';
     headline    = 'The Bid Holds!';
     detail      = `${escapeHtml(loser?.name || '?')} loses a die — the bid was true.`;
     addLog(`The bid held. ${loser?.name} loses a die.`, 'result');
   } else if (rr.type === 'spoton_correct') {
+    SoundEngine.spotOnWin();
     resultClass = 'result--spoton-win';
     headline    = 'Spot On!';
-    detail      = `${escapeHtml(gainer?.name || '?')} gains a die — exact count!`;
+    detail      = `${escapeHtml(gainer?.name || '?')} gains a die!`;
     addLog(`🎯 Spot-on! ${gainer?.name} gains a die.`, 'result');
   } else {
+    SoundEngine.roundLose();
     resultClass = 'result--correct';
     headline    = 'Off The Mark!';
-    detail      = `${escapeHtml(loser?.name || '?')} loses a die — wrong count.`;
+    detail      = `${escapeHtml(loser?.name || '?')} loses a die.`;
     addLog(`Spot-on missed. ${loser?.name} loses a die.`, 'result');
   }
 
@@ -409,11 +372,10 @@ async function enterRevealing(gs) {
   document.getElementById('result-detail').textContent   = detail;
   await delay(200);
   resultEl.classList.add('show');
-
-  await delay(2400);
+  await delay(2200);
   hintEl.style.display = 'block';
 
-  // Host advances to round_result phase so all clients apply die changes
+  // Host advances to round_result
   if (myPlayer?.is_host) {
     const fresh = await fetchLobby();
     if (fresh?.game_state?.phase === 'revealing') {
@@ -427,7 +389,6 @@ async function enterRoundResult(gs) {
   const rr = gs.roundResult;
   if (!rr || !myPlayer?.is_host) return;
 
-  // Only host applies die changes and drives next round
   if (rr.loserId) {
     const loser = players.find(p => p.id === rr.loserId);
     if (loser) {
@@ -438,22 +399,20 @@ async function enterRoundResult(gs) {
       }).eq('id', rr.loserId);
     }
   }
-  if (rr.gainerId && lobby.settings.spotOnEnabled) {
+  if (rr.gainerId) {
     const gainer = players.find(p => p.id === rr.gainerId);
-    if (gainer) {
-      const newCount = Math.min(lobby.settings.startingDice, gainer.dice_count + 1);
+    if (gainer && lobby.settings.spotOnEnabled) {
+      const cap = lobby.settings.unlimitedDice ? 99 : lobby.settings.startingDice;
+      const newCount = Math.min(cap, gainer.dice_count + 1);
       await sb.from('players').update({ dice_count: newCount }).eq('id', rr.gainerId);
     }
   }
 
-  // Clear revealed_dice for all
   await sb.from('players').update({ revealed_dice: null }).eq('lobby_code', lobbyCode);
 
-  // Refresh to get updated dice counts
   players  = await fetchPlayers();
   myPlayer = players.find(p => p.id === myPlayerId) || myPlayer;
 
-  // Check game over
   const alive = players.filter(p => !p.is_eliminated);
   if (alive.length <= 1) {
     const winnerId = alive[0]?.id || null;
@@ -461,8 +420,7 @@ async function enterRoundResult(gs) {
     return;
   }
 
-  // Wait then start next round
-  await delay(5000);
+  await delay(1500);
   const fresh = await fetchLobby();
   if (fresh?.game_state?.phase === 'round_result') {
     await startNextRound(fresh.game_state, fresh.settings);
@@ -473,32 +431,24 @@ async function startNextRound(gs, settings) {
   players = await fetchPlayers();
   const alive = players.filter(p => !p.is_eliminated);
 
-  // Who starts next round? The loser goes first.
-  let firstPlayerId = gs.roundResult?.loserId || gs.roundResult?.gainerId;
-  if (!firstPlayerId || !alive.find(p => p.id === firstPlayerId)) {
-    firstPlayerId = alive[0]?.id;
-  }
+  let firstId = gs.roundResult?.loserId || gs.roundResult?.gainerId;
+  if (!firstId || !alive.find(p => p.id === firstId)) firstId = alive[0]?.id;
 
-  const newOrder = buildPlayerOrder(alive, firstPlayerId);
-  const nextRound = gs.round + 1;
+  let newOrder = buildPlayerOrder(alive, firstId);
 
-  // Check palafico
-  let palaficoActive = false;
-  let palaficoPlayerId = null;
+  let palaficoActive = false, palaficoPlayerId = null;
   if (settings.palaficoEnabled && settings.mode === 'perudo') {
-    const palPlayer = alive.find(p => p.dice_count === 1);
-    if (palPlayer) {
+    const pal = alive.find(p => p.dice_count === 1);
+    if (pal) {
       palaficoActive = true;
-      palaficoPlayerId = palPlayer.id;
-      // Palafico player goes first
-      const palOrder = buildPlayerOrder(alive, palPlayer.id);
-      newOrder.splice(0, newOrder.length, ...palOrder);
+      palaficoPlayerId = pal.id;
+      newOrder = buildPlayerOrder(alive, pal.id);
     }
   }
 
   await updateGameState({
     phase: 'rolling',
-    round: nextRound,
+    round: gs.round + 1,
     playerOrder: newOrder,
     currentPlayerIndex: 0,
     currentBid: null,
@@ -522,151 +472,377 @@ function buildPlayerOrder(alivePlayers, firstId) {
 // ── Phase: GAME OVER ──────────────────────────────────────────
 function enterGameOver(gs) {
   document.getElementById('reveal-overlay').classList.remove('active');
-  const overlay = document.getElementById('gameover-overlay');
-  const winner  = players.find(p => p.id === gs.winnerId);
+  const winner = players.find(p => p.id === gs.winnerId);
+  const isMe   = gs.winnerId === myPlayerId;
+  if (isMe) SoundEngine.gameWin(); else SoundEngine.gameLose();
+
   document.getElementById('gameover-winner').textContent = winner?.name || 'Unknown';
   document.getElementById('gameover-winner').style.color = winner?.dice_color || 'var(--red)';
-  overlay.classList.add('active');
+  document.getElementById('gameover-overlay').classList.add('active');
   addLog(`🏆 ${winner?.name || '?'} wins the game!`, 'result');
 }
 
-// ── Actions ───────────────────────────────────────────────────
+// ── Player actions ────────────────────────────────────────────
 async function submitBid() {
   const gs = lobby.game_state;
   if (!isMyTurn(gs)) return;
 
   const newBid = { count: bidCount, face: bidFace, playerId: myPlayerId };
-  const palafico = gs.palaficoActive || false;
-
-  if (!isValidBid(newBid, gs.currentBid, lobby.settings, palafico)) {
+  if (!isValidBid(newBid, gs.currentBid, lobby.settings, gs.palaficoActive || false)) {
     showBidError('Invalid bid — must be higher than the current bid');
     return;
   }
-
   hideBidError();
+  SoundEngine.bid();
 
-  // Advance to next player
-  const order = gs.playerOrder;
-  const nextIndex = (gs.currentPlayerIndex + 1) % order.length;
-
-  await updateGameState({
-    ...gs,
-    currentBid: newBid,
-    currentPlayerIndex: nextIndex,
-  });
-
+  const nextIndex = (gs.currentPlayerIndex + 1) % gs.playerOrder.length;
+  await updateGameState({ ...gs, currentBid: newBid, currentPlayerIndex: nextIndex });
   addLog(`${escapeHtml(myPlayer.name)} bid ${describeBid(newBid)}`, 'bid');
 }
 
 async function callChallenge(type) {
   const gs = lobby.game_state;
-  if (!isMyTurn(gs)) return;
-  if (!gs.currentBid) return;
-
+  if (!isMyTurn(gs) || !gs.currentBid) return;
   hideControls();
-
-  await updateGameState({
-    ...gs,
-    phase: 'challenge_called',
-    challengerId: myPlayerId,
-    challengeType: type,
-  });
+  await updateGameState({ ...gs, phase: 'challenge_called', challengerId: myPlayerId, challengeType: type });
 }
 
 async function skipCurrentPlayer() {
   if (!myPlayer?.is_host) return;
   const gs = lobby.game_state;
   if (gs.phase !== 'bidding') return;
-
   const order = gs.playerOrder;
-  const nextIndex = (gs.currentPlayerIndex + 1) % order.length;
   showNotif(`Skipped ${playerName(order[gs.currentPlayerIndex])}`, 'info');
-  await updateGameState({ ...gs, currentPlayerIndex: nextIndex });
+  await updateGameState({ ...gs, currentPlayerIndex: (gs.currentPlayerIndex + 1) % order.length });
 }
 
-// ── Bid input helpers ─────────────────────────────────────────
+// ── Bot system ────────────────────────────────────────────────
+function getBotList()          { return JSON.parse(localStorage.getItem('botPlayers') || '[]'); }
+function saveBotList(arr)      { localStorage.setItem('botPlayers', JSON.stringify(arr)); }
+function getBotDice(id)        { return JSON.parse(localStorage.getItem(`botDice_${id}`) || '[]'); }
+function saveBotDice(id, dice) { localStorage.setItem(`botDice_${id}`, JSON.stringify(dice)); }
+function isBotPlayer(id)       { return getBotList().includes(id); }
+
+async function addBot() {
+  const gs = lobby?.game_state;
+  if (!myPlayer?.is_host) return showNotif('Only the host can add bots', 'error');
+
+  const activeBotCount = getBotList().filter(id => players.find(p => p.id === id && !p.is_eliminated)).length;
+  if (players.length >= (lobby?.settings?.maxPlayers || 8)) return showNotif('Lobby is full', 'error');
+
+  // Pick unused name/color
+  const usedNames = players.map(p => p.name);
+  const availableNames = BOT_NAMES.filter(n => !usedNames.includes(`Bot ${n}`));
+  const name  = availableNames.length ? `Bot ${availableNames[0]}` : `Bot ${activeBotCount + 1}`;
+  const color = BOT_COLORS[activeBotCount % BOT_COLORS.length];
+
+  const usedSeats = players.map(p => p.seat_order);
+  let seat = 0;
+  while (usedSeats.includes(seat)) seat++;
+
+  const startDice = lobby.settings.startingDice;
+  const botId = generateId();
+
+  const { error } = await sb.from('players').insert({
+    id: botId,
+    lobby_code: lobbyCode,
+    name,
+    dice_color: color,
+    seat_order: seat,
+    is_host: false,
+    dice_count: startDice,
+    is_eliminated: false,
+    last_seen: new Date().toISOString()
+  });
+  if (error) { showNotif('Failed to add bot'); return; }
+
+  const bots = getBotList();
+  bots.push(botId);
+  saveBotList(bots);
+
+  // If game is running, add to playerOrder
+  if (gs?.phase === 'bidding' || gs?.phase === 'rolling') {
+    const fresh = await fetchLobby();
+    if (fresh) {
+      const updatedOrder = [...(fresh.game_state.playerOrder || []), botId];
+      await updateGameState({ ...fresh.game_state, playerOrder: updatedOrder });
+    }
+  }
+
+  showNotif(`${name} joined`, 'success');
+  renderDevPanel();
+}
+
+async function removeBot(botId) {
+  await sb.from('players').delete().eq('id', botId);
+  const bots = getBotList().filter(id => id !== botId);
+  saveBotList(bots);
+  localStorage.removeItem(`botDice_${botId}`);
+  renderDevPanel();
+}
+
+async function rollBotDice(gs) {
+  const bots = getBotList();
+  for (const botId of bots) {
+    const bot = players.find(p => p.id === botId && !p.is_eliminated);
+    if (!bot) continue;
+    const dice = rollDice(bot.dice_count);
+    saveBotDice(botId, dice);
+    if (isDevMode()) {
+      await sb.from('players').update({ revealed_dice: dice }).eq('id', botId);
+    }
+  }
+}
+
+async function revealBotDice() {
+  const bots = getBotList();
+  for (const botId of bots) {
+    const bot = players.find(p => p.id === botId && !p.is_eliminated);
+    if (!bot) continue;
+    const dice = getBotDice(botId);
+    if (dice.length) {
+      await sb.from('players').update({ revealed_dice: dice }).eq('id', botId);
+    }
+  }
+}
+
+async function takeBotTurn(gs) {
+  // Re-check phase is still bidding and it's still this bot's turn
+  const fresh = await fetchLobby();
+  if (!fresh || fresh.game_state.phase !== 'bidding') return;
+  const currentId = fresh.game_state.playerOrder?.[fresh.game_state.currentPlayerIndex];
+  if (!isBotPlayer(currentId)) return;
+
+  const botDice   = getBotDice(currentId);
+  const bot       = players.find(p => p.id === currentId);
+  const cb        = fresh.game_state.currentBid;
+  const settings  = fresh.settings;
+  const palafico  = fresh.game_state.palaficoActive || false;
+
+  // Total dice on the table
+  const totalDice = players.filter(p => !p.is_eliminated).reduce((s, p) => s + p.dice_count, 0);
+
+  // Decide: call liar or bid?
+  if (cb && shouldBotCallLiar(cb, botDice, totalDice, settings, palafico)) {
+    await updateGameState({
+      ...fresh.game_state,
+      phase: 'challenge_called',
+      challengerId: currentId,
+      challengeType: 'liar'
+    });
+    addLog(`${playerName(currentId)} called ☠ LIAR!`, 'challenge');
+    return;
+  }
+
+  const newBid = getBotBid(bot, cb, totalDice, settings, palafico, botDice);
+  const nextIndex = (fresh.game_state.currentPlayerIndex + 1) % fresh.game_state.playerOrder.length;
+  await updateGameState({
+    ...fresh.game_state,
+    currentBid: { ...newBid, playerId: currentId },
+    currentPlayerIndex: nextIndex
+  });
+  addLog(`${playerName(currentId)} bid ${describeBid(newBid)}`, 'bid');
+}
+
+function shouldBotCallLiar(bid, botDice, totalDice, settings, palafico) {
+  if (!bid) return false;
+  const onesWild = settings.onesWild && settings.mode === 'perudo' && !palafico;
+  const prob = onesWild && bid.face !== 1 ? 2/6 : 1/6;
+  const expected = totalDice * prob;
+  // Call liar if bid is way over expected, scaled by aggression
+  const aggressionFactor = 1.4;
+  return bid.count > expected * aggressionFactor && Math.random() < 0.65;
+}
+
+function getBotBid(bot, currentBid, totalDice, settings, palafico, botDice) {
+  if (!currentBid) {
+    // First bid: bid something reasonable based on own dice
+    const faceCounts = [0,0,0,0,0,0,0];
+    botDice.forEach(d => faceCounts[d]++);
+    // Find most common face
+    let bestFace = 2, bestCount = 0;
+    for (let f = 2; f <= 6; f++) {
+      let cnt = faceCounts[f];
+      if (settings.onesWild && settings.mode === 'perudo' && !palafico) cnt += faceCounts[1];
+      if (cnt > bestCount) { bestCount = cnt; bestFace = f; }
+    }
+    const count = Math.max(1, Math.round(bestCount * 1.2 + Math.random()));
+    return { count, face: bestFace };
+  }
+
+  // Try to raise count on same face
+  const raisedCount = { count: currentBid.count + 1, face: currentBid.face };
+  if (isValidBid(raisedCount, currentBid, settings, palafico)) {
+    if (Math.random() < 0.7) return raisedCount;
+  }
+
+  // Try higher face same count
+  for (let f = currentBid.face + 1; f <= 6; f++) {
+    const bid = { count: currentBid.count, face: f };
+    if (isValidBid(bid, currentBid, settings, palafico)) return bid;
+  }
+
+  // Fall back to +1 count any face
+  return raisedCount;
+}
+
+// ── Dev mode ──────────────────────────────────────────────────
+function isDevMode() {
+  return document.getElementById('dev-panel').classList.contains('open');
+}
+
+function toggleDevPanel() {
+  const panel  = document.getElementById('dev-panel');
+  const btn    = document.getElementById('dev-toggle');
+  const open   = panel.classList.toggle('open');
+  btn.classList.toggle('active', open);
+  if (open) renderDevPanel();
+}
+
+function renderDevPanel() {
+  if (!isDevMode()) return;
+
+  // Update unlimited dice status
+  const ulStatus = document.getElementById('dev-unlimited-status');
+  if (ulStatus) ulStatus.textContent = lobby?.settings?.unlimitedDice ? 'ON' : 'OFF';
+
+  // Dice display
+  const diceDisplay = document.getElementById('dev-dice-display');
+  if (diceDisplay) {
+    diceDisplay.innerHTML = '';
+
+    // My dice
+    const myRow = document.createElement('div');
+    myRow.className = 'dev-dice-row';
+    myRow.innerHTML = `<span class="dev-dice-name">${escapeHtml(myPlayer?.name || 'You')}</span>`;
+    myDice.forEach(val => {
+      myRow.insertAdjacentHTML('beforeend', makeDieHTML(val, myPlayer?.dice_color || '#c41e3a', { size: 32 }));
+    });
+    diceDisplay.appendChild(myRow);
+
+    // Bot dice
+    getBotList().forEach(botId => {
+      const bot  = players.find(p => p.id === botId);
+      if (!bot || bot.is_eliminated) return;
+      const dice = getBotDice(botId);
+      const row  = document.createElement('div');
+      row.className = 'dev-dice-row';
+      row.innerHTML = `<span class="dev-dice-name">${escapeHtml(bot.name)}</span>`;
+      if (dice.length) {
+        dice.forEach(val => row.insertAdjacentHTML('beforeend', makeDieHTML(val, bot.dice_color, { size: 32 })));
+      } else {
+        row.insertAdjacentHTML('beforeend', `<span class="dev-dice-hidden">not yet rolled</span>`);
+      }
+      diceDisplay.appendChild(row);
+    });
+
+    // Human players (not self, not bots)
+    players.filter(p => p.id !== myPlayerId && !isBotPlayer(p.id) && !p.is_eliminated).forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'dev-dice-row';
+      row.innerHTML = `<span class="dev-dice-name">${escapeHtml(p.name)}</span><span class="dev-dice-hidden">hidden (human)</span>`;
+      diceDisplay.appendChild(row);
+    });
+  }
+
+  // Bot list
+  const botList = document.getElementById('bot-list');
+  if (botList) {
+    botList.innerHTML = '';
+    getBotList().forEach(botId => {
+      const bot = players.find(p => p.id === botId);
+      if (!bot) return;
+      const entry = document.createElement('div');
+      entry.className = 'bot-entry';
+      entry.innerHTML = `
+        <span class="bot-entry__name" style="color:${bot.dice_color}">${escapeHtml(bot.name)}</span>
+        <button class="btn--dev-remove" onclick="removeBot('${botId}')">Remove</button>
+      `;
+      botList.appendChild(entry);
+    });
+    if (!getBotList().length) {
+      botList.innerHTML = '<div style="font-size:0.78rem;color:var(--text-muted)">No bots added</div>';
+    }
+  }
+}
+
+// ── Bid UI helpers ────────────────────────────────────────────
 function refreshBidInputs() {
   document.getElementById('count-val').textContent = bidCount;
   document.querySelectorAll('.face-btn').forEach(b => {
     b.classList.toggle('active', parseInt(b.dataset.face) === bidFace);
   });
 }
-
 function showBidError(msg) {
   const el = document.getElementById('bid-error');
-  el.textContent = msg;
-  el.classList.remove('hidden');
+  el.textContent = msg; el.classList.remove('hidden');
 }
-function hideBidError() {
-  document.getElementById('bid-error').classList.add('hidden');
-}
+function hideBidError() { document.getElementById('bid-error').classList.add('hidden'); }
 
-// ── UI wiring ──────────────────────────────────────────────────
+// ── UI wiring ─────────────────────────────────────────────────
 function wireUI() {
   document.getElementById('count-dec').addEventListener('click', () => {
     if (bidCount > 1) { bidCount--; refreshBidInputs(); }
   });
   document.getElementById('count-inc').addEventListener('click', () => {
     const total = players.filter(p => !p.is_eliminated).reduce((s, p) => s + p.dice_count, 0);
-    if (bidCount < total) { bidCount++; refreshBidInputs(); }
+    if (bidCount < Math.max(total, 40)) { bidCount++; refreshBidInputs(); }
   });
-
   document.getElementById('face-selector').addEventListener('click', e => {
     const btn = e.target.closest('.face-btn');
-    if (btn) {
-      bidFace = parseInt(btn.dataset.face);
-      refreshBidInputs();
-    }
+    if (btn) { bidFace = parseInt(btn.dataset.face); refreshBidInputs(); }
   });
-
   document.getElementById('bid-btn').addEventListener('click', submitBid);
   document.getElementById('liar-btn').addEventListener('click', () => callChallenge('liar'));
   document.getElementById('spoton-btn').addEventListener('click', () => callChallenge('spoton'));
   document.getElementById('skip-btn').addEventListener('click', skipCurrentPlayer);
-
   document.getElementById('leave-btn').addEventListener('click', async () => {
     if (!confirm('Leave the game?')) return;
     localStorage.removeItem('myDice');
     window.location.href = 'index.html';
   });
-
   document.getElementById('play-again-btn').addEventListener('click', async () => {
     await sb.from('lobbies').update({ status: 'waiting', game_state: {} }).eq('code', lobbyCode);
     await sb.from('players').update({ dice_count: lobby.settings.startingDice, is_eliminated: false, revealed_dice: null }).eq('lobby_code', lobbyCode);
     window.location.href = 'lobby.html';
   });
-
-  document.getElementById('back-lobby-btn').addEventListener('click', () => {
-    window.location.href = 'lobby.html';
-  });
-
-  // Emote picker
+  document.getElementById('back-lobby-btn').addEventListener('click', () => { window.location.href = 'lobby.html'; });
   document.getElementById('emote-toggle').addEventListener('click', () => {
-    const picker = document.getElementById('emote-picker');
-    picker.style.display = picker.style.display === 'none' ? 'flex' : 'none';
+    const p = document.getElementById('emote-picker');
+    p.style.display = p.style.display === 'none' ? 'flex' : 'none';
   });
-
   document.getElementById('emote-picker').addEventListener('click', async e => {
     const btn = e.target.closest('.emote-btn');
     if (!btn) return;
     const emote = btn.dataset.emote;
     document.getElementById('emote-picker').style.display = 'none';
+    SoundEngine.emote();
     addLog(`${emote} ${escapeHtml(myPlayer?.name || 'You')}`, 'emote');
     showEmote(myPlayerId, emote);
-    if (broadcastChannel) {
-      broadcastChannel.send({ type: 'broadcast', event: 'emote', payload: { playerId: myPlayerId, emote } });
-    }
+    broadcastChannel?.send({ type: 'broadcast', event: 'emote', payload: { playerId: myPlayerId, emote } });
   });
+
+  // Sound toggle
+  document.getElementById('sound-toggle').addEventListener('click', () => {
+    const on = SoundEngine.toggle();
+    document.getElementById('sound-toggle').textContent = on ? '🔊' : '🔇';
+    document.getElementById('sound-toggle').classList.toggle('muted', !on);
+  });
+
+  // Dev panel
+  document.getElementById('dev-toggle').addEventListener('click', toggleDevPanel);
+  document.getElementById('dev-close').addEventListener('click', toggleDevPanel);
+  document.getElementById('add-bot-btn').addEventListener('click', addBot);
 }
 
 // ── Emotes ────────────────────────────────────────────────────
 function receiveEmote(playerId, emote) {
-  if (playerId === myPlayerId) return; // we already showed ours
+  if (playerId === myPlayerId) return;
   const player = players.find(p => p.id === playerId);
+  SoundEngine.emote();
   addLog(`${emote} ${escapeHtml(player?.name || '?')}`, 'emote');
   showEmote(playerId, emote);
 }
-
 function showEmote(playerId, emote) {
   const card = document.querySelector(`[data-player-id="${playerId}"]`);
   if (!card) return;
@@ -691,83 +867,124 @@ function addLog(text, type = 'info') {
 // ── Render ────────────────────────────────────────────────────
 function renderAll() {
   renderHeader();
-  renderPlayers();
+  renderTablePlayers();
   renderBidDisplay(lobby?.game_state?.currentBid, lobby?.game_state);
   renderYourDice(myDice);
   updateTurnUI(lobby?.game_state);
+  if (isDevMode()) renderDevPanel();
 }
 
 function renderHeader() {
   const gs = lobby?.game_state;
   document.getElementById('round-badge').textContent = gs?.round ? `Round ${gs.round}` : '—';
-  const pB = document.getElementById('palafico-badge');
-  if (gs?.palaficoActive) pB.classList.add('active');
-  else pB.classList.remove('active');
+  document.getElementById('palafico-badge').classList.toggle('active', !!gs?.palaficoActive);
 }
 
-function renderPlayers() {
-  const gs  = lobby?.game_state;
-  const row = document.getElementById('players-row');
-  row.innerHTML = '';
+// ── Circular table render ─────────────────────────────────────
+function renderTablePlayers() {
+  const gs        = lobby?.game_state;
+  const container = document.getElementById('table-players');
+  const tableEl   = document.getElementById('game-table');
+  if (!container || !tableEl) return;
+  container.innerHTML = '';
 
-  const order = gs?.playerOrder || players.map(p => p.id);
+  const W  = tableEl.offsetWidth  || 640;
+  const H  = tableEl.offsetHeight || 420;
+  const cx = W / 2;
+  const cy = H / 2;
+  // Ellipse radii (leave room for ~65px-wide cards on each side)
+  const rx = (W / 2) - 72;
+  const ry = (H / 2) - 56;
+
+  const order  = gs?.playerOrder || players.map(p => p.id);
   const sorted = [...players].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  const n      = sorted.length;
 
-  sorted.forEach(player => {
+  let activeAngle = null;
+
+  sorted.forEach((player, i) => {
+    const angle = (i / n) * 2 * Math.PI - Math.PI / 2; // start top, clockwise
+    const x = cx + rx * Math.cos(angle);
+    const y = cy + ry * Math.sin(angle);
+
     const isCurrentTurn = gs?.phase === 'bidding' &&
       gs.playerOrder?.[gs.currentPlayerIndex] === player.id;
+    const isActive = n <= 1 || isCurrentTurn;
+
+    if (isCurrentTurn) activeAngle = angle;
 
     const card = document.createElement('div');
-    card.className = ['player-card',
-      isCurrentTurn ? 'current-turn' : '',
-      player.id === myPlayerId ? 'is-me' : '',
-      player.is_eliminated ? 'eliminated' : ''
+    card.className = [
+      'table-player-card',
+      player.id === myPlayerId  ? 'tpc--me' : '',
+      isCurrentTurn             ? 'tpc--active' : '',
+      !isCurrentTurn && n > 1 && gs?.phase === 'bidding' ? 'tpc--inactive' : '',
+      player.is_eliminated      ? 'tpc--eliminated' : ''
     ].filter(Boolean).join(' ');
     card.dataset.playerId = player.id;
+    card.style.left       = `${x}px`;
+    card.style.top        = `${y}px`;
     card.style.borderColor = player.dice_color;
-    card.style.boxShadow = `0 0 ${isCurrentTurn ? 22 : 8}px ${hexToRgba(player.dice_color, isCurrentTurn ? 0.6 : 0.25)}`;
+    card.style.boxShadow   = `0 0 ${isCurrentTurn ? 24 : 8}px ${hexToRgba(player.dice_color, isCurrentTurn ? 0.7 : 0.3)}`;
 
     const miniPips = Array.from({ length: player.dice_count }, () =>
-      `<div class="mini-pip" style="background:${player.dice_color}"></div>`
+      `<div class="tpc__pip" style="background:${player.dice_color}"></div>`
     ).join('');
 
     card.innerHTML = `
-      ${player.id === myPlayerId ? '<div class="player-card__you-tag">You</div>' : ''}
-      <div class="player-card__name">${escapeHtml(player.name)}</div>
-      <div class="player-card__dice-count">${player.is_eliminated ? '☠ Eliminated' : `${player.dice_count} ${player.dice_count === 1 ? 'die' : 'dice'}`}</div>
-      <div class="player-card__dice-pips">${miniPips}</div>
-      <div class="player-card__turn-arrow">▼</div>
+      ${player.id === myPlayerId ? '<div class="tpc__you">You</div>' : ''}
+      <div class="tpc__name">${escapeHtml(player.name)}${isBotPlayer(player.id) ? ' 🤖' : ''}</div>
+      <div class="tpc__dice-count">${player.is_eliminated ? '☠ Out' : `${player.dice_count} ${player.dice_count === 1 ? 'die' : 'dice'}`}</div>
+      <div class="tpc__pips">${miniPips}</div>
+      ${isCurrentTurn ? `<div class="tpc__turn-indicator" style="color:${player.dice_color}">▲ their turn</div>` : ''}
     `;
-    row.appendChild(card);
+    container.appendChild(card);
   });
+
+  // Update spotlight
+  updateSpotlight(activeAngle);
+}
+
+function updateSpotlight(angle) {
+  const beam = document.getElementById('spotlight-beam');
+  if (!beam) return;
+  if (angle === null) { beam.style.background = 'none'; return; }
+
+  // Convert math angle (radians, +x right) to CSS conic angle (degrees, clockwise from top)
+  const cssDeg = ((angle * 180 / Math.PI) + 90 + 360) % 360;
+  const hw = 22; // half-width of beam in degrees
+  beam.style.background = `conic-gradient(
+    from ${cssDeg - hw - 3}deg at 50% 50%,
+    transparent          0deg,
+    rgba(255,210,80,0.04) ${3}deg,
+    rgba(255,210,80,0.09) ${hw}deg,
+    rgba(255,210,80,0.04) ${hw + 3}deg,
+    transparent          ${hw * 2 + 6}deg,
+    transparent          360deg
+  )`;
 }
 
 function renderBidDisplay(bid, gs) {
   const valEl = document.getElementById('bid-value');
   const byEl  = document.getElementById('bid-by');
-
   if (!bid) {
-    valEl.innerHTML = '<span class="bid-display__no-bid">— No Bid Yet —</span>';
+    valEl.innerHTML = '<span class="bid-display__no-bid">— No Bid —</span>';
     byEl.textContent = '';
     return;
   }
-
   const prev = valEl.dataset.prev;
-  valEl.innerHTML = `${bid.count} × ${FACE_UNICODE[bid.face]} <span style="font-size:1.4rem;font-weight:400">${FACE_NAME[bid.face]}</span>`;
-  valEl.dataset.prev = JSON.stringify(bid);
-
-  if (prev !== JSON.stringify(bid)) {
-    valEl.classList.remove('updated');
-    void valEl.offsetWidth; // reflow
-    valEl.classList.add('updated');
+  const newStr = JSON.stringify(bid);
+  valEl.innerHTML = `${bid.count} × ${FACE_UNICODE[bid.face]} <span style="font-size:1.1rem;font-weight:400">${FACE_NAME[bid.face]}</span>`;
+  valEl.dataset.prev = newStr;
+  if (prev !== newStr) {
+    valEl.classList.remove('updated'); void valEl.offsetWidth; valEl.classList.add('updated');
   }
-
   const bidder = players.find(p => p.id === bid.playerId);
   byEl.textContent = bidder ? `by ${escapeHtml(bidder.name)}` : '';
 }
 
-function renderYourDice(dice) {
-  if (!dice || !dice.length) return;
+function renderYourDice(dice, animate = false) {
+  if (!dice?.length) return;
   const row = document.getElementById('your-dice-row');
   const gs  = lobby?.game_state;
   const bid = gs?.currentBid;
@@ -777,7 +994,7 @@ function renderYourDice(dice) {
   dice.forEach(val => {
     const hl = bid ? (val === bid.face || (onesWild && bid.face !== 1 && val === 1)) : false;
     row.insertAdjacentHTML('beforeend', makeDieHTML(val, myPlayer?.dice_color || '#c41e3a', {
-      size: 60, highlight: hl
+      size: 60, highlight: hl, animating: animate
     }));
   });
 }
@@ -788,41 +1005,29 @@ function updateTurnUI(gs) {
 
   if (phase === 'rolling') {
     setTurnIndicator('rolling', '🎲 Rolling…');
-    hideControls();
-    return;
+    hideControls(); return;
   }
-
   if (phase === 'bidding') {
     const mine = isMyTurn(gs);
     if (mine) {
-      setTurnIndicator('my-turn', '⚡ Your Turn');
+      setTurnIndicator('my-turn', '⚡ Your Turn — make your move');
       showControls(gs);
     } else {
       const cp = getCurrentPlayer(gs);
       setTurnIndicator('other-turn', `${escapeHtml(cp?.name || '…')}'s turn`);
       hideControls();
-
-      // Show skip button to host after timeout
       if (myPlayer?.is_host) {
         clearTimeout(skipTimer);
-        skipTimer = setTimeout(() => {
-          document.getElementById('skip-btn-wrap').classList.add('visible');
-        }, 60000);
+        skipTimer = setTimeout(() => document.getElementById('skip-btn-wrap').classList.add('visible'), 60000);
       }
     }
     return;
   }
-
   if (phase === 'challenge_called' || phase === 'revealing') {
-    setTurnIndicator('rolling', '☠ Revealing…');
-    hideControls();
-    return;
+    setTurnIndicator('rolling', '☠ Revealing…'); hideControls(); return;
   }
-
   if (phase === 'round_result') {
-    setTurnIndicator('rolling', 'Round over…');
-    hideControls();
-    return;
+    setTurnIndicator('rolling', 'Round over…'); hideControls(); return;
   }
 }
 
@@ -831,22 +1036,17 @@ function showControls(gs) {
   document.getElementById('waiting-panel').classList.add('hidden');
   document.getElementById('skip-btn-wrap').classList.remove('visible');
   clearTimeout(skipTimer);
-
   const hasBid = !!gs.currentBid;
   document.getElementById('liar-btn').classList.toggle('hidden', !hasBid);
-  document.getElementById('spoton-btn').classList.toggle('hidden',
-    !hasBid || !lobby?.settings?.spotOnEnabled);
-
+  document.getElementById('spoton-btn').classList.toggle('hidden', !hasBid || !lobby?.settings?.spotOnEnabled);
   refreshBidInputs();
 }
-
 function hideControls() {
   document.getElementById('bid-controls').classList.add('hidden');
   document.getElementById('waiting-panel').classList.remove('hidden');
   document.getElementById('skip-btn-wrap').classList.remove('visible');
   clearTimeout(skipTimer);
 }
-
 function setTurnIndicator(type, text) {
   const el = document.getElementById('turn-indicator');
   el.className = `turn-indicator ${type}`;
@@ -854,19 +1054,11 @@ function setTurnIndicator(type, text) {
 }
 
 // ── Utilities ─────────────────────────────────────────────────
-function isMyTurn(gs) {
-  if (!gs || gs.phase !== 'bidding') return false;
-  return gs.playerOrder?.[gs.currentPlayerIndex] === myPlayerId;
-}
-
+function isMyTurn(gs)       { return gs?.phase === 'bidding' && gs.playerOrder?.[gs.currentPlayerIndex] === myPlayerId; }
 function getCurrentPlayer(gs) {
   if (!gs?.playerOrder) return null;
-  const id = gs.playerOrder[gs.currentPlayerIndex];
-  return players.find(p => p.id === id) || null;
+  return players.find(p => p.id === gs.playerOrder[gs.currentPlayerIndex]) || null;
 }
-
-function playerName(id) {
-  return escapeHtml(players.find(p => p.id === id)?.name || '?');
-}
+function playerName(id)     { return escapeHtml(players.find(p => p.id === id)?.name || '?'); }
 
 init();
