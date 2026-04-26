@@ -16,7 +16,11 @@
       <div class="game-header__meta">
         <span class="round-badge" id="round-badge">Round —</span>
         <span class="palafico-badge" id="palafico-badge">⚑ Palafico</span>
-        <button class="sound-toggle" id="sound-toggle" title="Toggle sound">🔊</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:0.85rem;opacity:0.6" id="vol-icon">🔊</span>
+          <input type="range" id="volume-slider" min="0" max="100" value="70"
+            style="width:72px;accent-color:var(--red);cursor:pointer;height:3px">
+        </div>
         <button class="dev-btn" id="dev-toggle" title="Dev mode">🔧 DEV</button>
         <button class="btn btn--ghost btn--sm" id="leave-btn">Leave</button>
       </div>
@@ -84,10 +88,10 @@
           Waiting for your turn…
         </div>
 
-        <!-- Emote bar -->
-        <div style="display:flex;align-items:center;gap:8px;margin-top:12px">
-          <button class="emote-toggle" id="emote-toggle" title="Emotes">😈</button>
-          <div class="emote-picker" id="emote-picker" style="display:none">
+        <!-- Emote bar — always visible -->
+        <div style="margin-top:10px">
+          <div style="font-size:0.65rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--text-muted);font-family:var(--font-title);margin-bottom:6px">Emotes</div>
+          <div class="emote-picker" id="emote-picker" style="display:flex;flex-wrap:wrap;gap:4px">
             <button class="emote-btn" data-emote="💀">💀</button>
             <button class="emote-btn" data-emote="👻">👻</button>
             <button class="emote-btn" data-emote="😂">😂</button>

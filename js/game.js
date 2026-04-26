@@ -85,10 +85,22 @@ function subscribeToLobby() {
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'lobbies', filter: `code=eq.${lobbyCode}` },
       ({ new: updated }) => {
         if (!updated) return;
-        const oldPhase = lobby?.game_state?.phase;
+        const oldPhase   = lobby?.game_state?.phase;
+        const oldIndex   = lobby?.game_state?.currentPlayerIndex;
         lobby = updated;
         handleGameStateChange(lobby.game_state, oldPhase);
         renderAll();
+
+        // Re-trigger bot turn when bidding index advances (phase doesn't change)
+        const gs = lobby.game_state;
+        if (myPlayer?.is_host && gs?.phase === 'bidding' &&
+            oldPhase === 'bidding' && gs.currentPlayerIndex !== oldIndex) {
+          const currentId = gs.playerOrder?.[gs.currentPlayerIndex];
+          if (isBotPlayer(currentId)) {
+            clearTimeout(botTurnTimer);
+            botTurnTimer = setTimeout(() => takeBotTurn(gs), 1200 + Math.random() * 1000);
+          }
+        }
       })
     .subscribe();
 }
@@ -360,7 +372,7 @@ async function enterRevealing(gs) {
     detail      = `${escapeHtml(gainer?.name || '?')} gains a die!`;
     addLog(`🎯 Spot-on! ${gainer?.name} gains a die.`, 'result');
   } else {
-    SoundEngine.roundLose();
+    SoundEngine.spotOnLose();
     resultClass = 'result--correct';
     headline    = 'Off The Mark!';
     detail      = `${escapeHtml(loser?.name || '?')} loses a die.`;
@@ -558,6 +570,7 @@ async function addBot() {
 
   const bots = getBotList();
   bots.push(botId);
+  SoundEngine.join();
   saveBotList(bots);
 
   // If game is running, add to playerOrder
@@ -807,10 +820,6 @@ function wireUI() {
     window.location.href = 'lobby.html';
   });
   document.getElementById('back-lobby-btn').addEventListener('click', () => { window.location.href = 'lobby.html'; });
-  document.getElementById('emote-toggle').addEventListener('click', () => {
-    const p = document.getElementById('emote-picker');
-    p.style.display = p.style.display === 'none' ? 'flex' : 'none';
-  });
   document.getElementById('emote-picker').addEventListener('click', async e => {
     const btn = e.target.closest('.emote-btn');
     if (!btn) return;
@@ -822,11 +831,13 @@ function wireUI() {
     broadcastChannel?.send({ type: 'broadcast', event: 'emote', payload: { playerId: myPlayerId, emote } });
   });
 
-  // Sound toggle
-  document.getElementById('sound-toggle').addEventListener('click', () => {
-    const on = SoundEngine.toggle();
-    document.getElementById('sound-toggle').textContent = on ? '🔊' : '🔇';
-    document.getElementById('sound-toggle').classList.toggle('muted', !on);
+  // Volume slider
+  const volSlider = document.getElementById('volume-slider');
+  const volIcon   = document.getElementById('vol-icon');
+  volSlider.addEventListener('input', () => {
+    const v = parseInt(volSlider.value) / 100;
+    SoundEngine.setVolume(v);
+    volIcon.textContent = v === 0 ? '🔇' : v < 0.4 ? '🔉' : '🔊';
   });
 
   // Dev panel
@@ -1018,7 +1029,7 @@ function updateTurnUI(gs) {
       hideControls();
       if (myPlayer?.is_host) {
         clearTimeout(skipTimer);
-        skipTimer = setTimeout(() => document.getElementById('skip-btn-wrap').classList.add('visible'), 60000);
+        skipTimer = setTimeout(() => document.getElementById('skip-btn-wrap').classList.add('visible'), 10000);
       }
     }
     return;
