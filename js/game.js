@@ -308,7 +308,6 @@ async function enterRevealing(gs) {
     let playedHighlight = false;
     for (let i = 0; i < dieEls.length; i++) {
       await delay(360);
-      if (i === 0) SoundEngine.flip();
       const val = dice[i];
       const isMatch = val === currentBid.face;
       const isWild  = onesWild && currentBid.face !== 1 && val === 1;
