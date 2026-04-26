@@ -4,7 +4,7 @@
 const SoundEngine = (() => {
   let ctx = null;
   let masterGain = null;
-  let masterVolume = 0.7;
+  let masterVolume = 0.25;
   const loaded = {};
 
   // Sound file → event mapping
@@ -28,7 +28,7 @@ const SoundEngine = (() => {
   };
 
   // Target RMS level — all sounds normalised to this
-  const TARGET_RMS = 0.12;
+  const TARGET_RMS = 0.05;
 
   function getCtx() {
     if (!ctx) {

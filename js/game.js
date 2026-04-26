@@ -303,11 +303,11 @@ async function enterRevealing(gs) {
         makeDieHTML(1, player.dice_color, { faceDown: true, size: 54 }));
     }
 
-    // Flip one at a time
+    // Flip one at a time — play flip sound once when first die turns, highlight sound per match
     const dieEls = diceContainer.querySelectorAll('.die');
     for (let i = 0; i < dieEls.length; i++) {
       await delay(360);
-      SoundEngine.flip();
+      if (i === 0) SoundEngine.flip();
       const val = dice[i];
       const isMatch = val === currentBid.face;
       const isWild  = onesWild && currentBid.face !== 1 && val === 1;
