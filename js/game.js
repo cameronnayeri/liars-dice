@@ -279,6 +279,7 @@ async function enterRevealing(gs) {
   const activePlayers = players.filter(p => !p.is_eliminated)
     .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 
+  let runningCount = 0;
   for (const player of activePlayers) {
     const dice = revealData?.[player.id] || [];
 
@@ -303,9 +304,8 @@ async function enterRevealing(gs) {
         makeDieHTML(1, player.dice_color, { faceDown: true, size: 54 }));
     }
 
-    // Flip one at a time — flip sound once per player, highlight sound once per player (first match)
+    // Flip one at a time
     const dieEls = diceContainer.querySelectorAll('.die');
-    let playedHighlight = false;
     for (let i = 0; i < dieEls.length; i++) {
       await delay(360);
       const val = dice[i];
@@ -321,8 +321,12 @@ async function enterRevealing(gs) {
       dieEls[i].dataset.value = val;
 
       if (isMatch || isWild) {
+        runningCount++;
+        const remaining = currentBid.count - runningCount;
         await delay(150);
-        if (!playedHighlight) { SoundEngine.highlight(); playedHighlight = true; }
+        if (remaining === 1)      SoundEngine.oneOff();
+        else if (remaining === 2) SoundEngine.twoOff();
+        else if (remaining === 0) SoundEngine.countMet();
         dieEls[i].classList.add('die--highlight');
       }
     }
