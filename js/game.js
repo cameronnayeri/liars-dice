@@ -303,8 +303,9 @@ async function enterRevealing(gs) {
         makeDieHTML(1, player.dice_color, { faceDown: true, size: 54 }));
     }
 
-    // Flip one at a time — play flip sound once when first die turns, highlight sound per match
+    // Flip one at a time — flip sound once per player, highlight sound once per player (first match)
     const dieEls = diceContainer.querySelectorAll('.die');
+    let playedHighlight = false;
     for (let i = 0; i < dieEls.length; i++) {
       await delay(360);
       if (i === 0) SoundEngine.flip();
@@ -322,7 +323,7 @@ async function enterRevealing(gs) {
 
       if (isMatch || isWild) {
         await delay(150);
-        SoundEngine.highlight();
+        if (!playedHighlight) { SoundEngine.highlight(); playedHighlight = true; }
         dieEls[i].classList.add('die--highlight');
       }
     }
