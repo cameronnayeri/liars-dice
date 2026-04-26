@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liar's Dice — Game</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="notification"></div>
+
+  <div class="game-page">
+    <!-- Header -->
+    <header class="game-header">
+      <span class="game-header__title">☠ Liar's Dice</span>
+      <div class="game-header__meta">
+        <span class="round-badge" id="round-badge">Round —</span>
+        <span class="palafico-badge" id="palafico-badge">⚑ Palafico</span>
+        <button class="btn btn--ghost btn--sm" id="leave-btn">Leave</button>
+      </div>
+    </header>
+
+    <div class="game-main">
+      <!-- Players row -->
+      <div class="players-row" id="players-row">
+        <!-- filled by JS -->
+      </div>
+
+      <!-- Center content -->
+      <div class="game-center">
+        <!-- Turn indicator -->
+        <div class="turn-indicator other-turn" id="turn-indicator">Waiting…</div>
+
+        <!-- Current bid display -->
+        <div class="bid-display" id="bid-display">
+          <div class="bid-display__label">Current Bid</div>
+          <div class="bid-display__value" id="bid-value">
+            <span class="bid-display__no-bid">— No Bid Yet —</span>
+          </div>
+          <div class="bid-display__by" id="bid-by"></div>
+        </div>
+      </div>
+
+      <!-- Your dice + controls -->
+      <div class="your-dice-section">
+        <div class="your-dice-section__label">Your Dice</div>
+        <div class="your-dice-row" id="your-dice-row">
+          <!-- filled by JS -->
+        </div>
+
+        <!-- Bid controls (hidden until your turn) -->
+        <div class="bid-controls" id="bid-controls">
+          <div class="bid-inputs">
+            <div class="count-input">
+              <span class="count-input__label">Count</span>
+              <div class="count-spinner">
+                <button class="count-spinner__btn" id="count-dec">−</button>
+                <span class="count-spinner__val" id="count-val">1</span>
+                <button class="count-spinner__btn" id="count-inc">+</button>
+              </div>
+            </div>
+            <div class="count-input">
+              <span class="count-input__label">Face</span>
+              <div class="face-selector" id="face-selector">
+                <button class="face-btn active" data-face="2">⚁</button>
+                <button class="face-btn" data-face="3">⚂</button>
+                <button class="face-btn" data-face="4">⚃</button>
+                <button class="face-btn" data-face="5">⚄</button>
+                <button class="face-btn" data-face="6">⚅</button>
+                <button class="face-btn" data-face="1">⚀</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="action-btns" id="action-btns">
+            <button class="btn btn--primary" id="bid-btn">Raise Bid</button>
+            <button class="btn btn--liar hidden" id="liar-btn">☠ LIAR!</button>
+            <button class="btn btn--spoton hidden" id="spoton-btn">🎯 Spot On!</button>
+          </div>
+
+          <!-- Bid error msg -->
+          <div id="bid-error" class="hidden" style="color:var(--red-bright);font-size:0.8rem;letter-spacing:0.08em"></div>
+
+          <!-- Host: skip disconnected player -->
+          <div class="skip-btn-wrap" id="skip-btn-wrap">
+            <button class="btn btn--danger btn--sm" id="skip-btn">⏭ Skip Player (Host)</button>
+          </div>
+        </div>
+
+        <!-- Waiting / rolling message -->
+        <div id="waiting-panel" class="hidden" style="padding:8px 0;color:var(--text-dim);font-size:0.85rem;letter-spacing:0.1em;font-family:var(--font-title)">
+          Waiting for your turn…
+        </div>
+
+        <!-- Emote bar -->
+        <div class="emote-bar" style="margin-top:12px;padding:0;border:none">
+          <button class="emote-toggle" id="emote-toggle" title="Emotes">😈</button>
+          <div class="emote-picker" id="emote-picker" style="display:none">
+            <button class="emote-btn" data-emote="💀">💀</button>
+            <button class="emote-btn" data-emote="👻">👻</button>
+            <button class="emote-btn" data-emote="😂">😂</button>
+            <button class="emote-btn" data-emote="😱">😱</button>
+            <button class="emote-btn" data-emote="🔥">🔥</button>
+            <button class="emote-btn" data-emote="👁️">👁️</button>
+            <button class="emote-btn" data-emote="🤔">🤔</button>
+            <button class="emote-btn" data-emote="🎯">🎯</button>
+            <button class="emote-btn" data-emote="🤡">🤡</button>
+            <button class="emote-btn" data-emote="😈">😈</button>
+            <button class="emote-btn" data-emote="🍀">🍀</button>
+            <button class="emote-btn" data-emote="☠️">☠️</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Log panel -->
+      <aside class="game-log-panel">
+        <div class="game-log-panel__header">
+          <span>Game Log</span>
+        </div>
+        <div class="game-log-entries" id="game-log"></div>
+        <div class="emote-bar">
+          <!-- mobile emote access via log panel -->
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ── REVEAL OVERLAY ── -->
+  <div id="reveal-overlay">
+    <div class="reveal-title" id="reveal-title">The Truth Comes To Light</div>
+    <div class="reveal-subtitle show" id="reveal-subtitle">The dice do not lie</div>
+    <div class="reveal-players" id="reveal-players"></div>
+    <div class="reveal-tally" id="reveal-tally">
+      <div class="reveal-tally__bid" id="tally-bid-label"></div>
+      <div class="reveal-tally__count" id="tally-count"></div>
+    </div>
+    <div class="reveal-result" id="reveal-result">
+      <div class="reveal-result__headline" id="result-headline"></div>
+      <div class="reveal-result__detail" id="result-detail"></div>
+    </div>
+    <div class="reveal-close-hint" id="reveal-close-hint" style="display:none">
+      — Continuing next round —
+    </div>
+  </div>
+
+  <!-- ── GAME OVER OVERLAY ── -->
+  <div id="gameover-overlay">
+    <div class="gameover-skull">💀</div>
+    <div class="gameover-title">The Last One Standing</div>
+    <div class="gameover-winner" id="gameover-winner" style="color:var(--red);text-shadow:0 0 30px var(--red-glow)"></div>
+    <div class="gameover-subtitle">survives</div>
+    <div class="gameover-actions">
+      <button class="btn btn--primary" id="play-again-btn">Play Again</button>
+      <button class="btn btn--ghost" id="back-lobby-btn">Back to Lobby</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/client.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liar's Dice — Lobby</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="notification"></div>
+
+  <div class="page lobby-page" style="max-width:1000px;margin:0 auto;width:100%">
+    <div class="lobby-header">
+      <div>
+        <h1 style="font-size:1.8rem;color:var(--red);text-shadow:0 0 16px var(--red-glow)">Liar's Dice</h1>
+        <p style="font-size:0.78rem;letter-spacing:0.15em;color:var(--text-dim);text-transform:uppercase;margin-top:4px">Lobby</p>
+      </div>
+      <div class="lobby-code-badge">
+        <span class="badge-label">Lobby Code</span>
+        <span class="badge-code" id="lobby-code-display">????</span>
+      </div>
+    </div>
+
+    <div class="lobby-body">
+      <!-- Left: players + your options -->
+      <div>
+        <h3 style="letter-spacing:0.2em;color:var(--text-dim);margin-bottom:14px">Players</h3>
+        <div id="player-list" class="player-list">
+          <!-- filled by JS -->
+        </div>
+
+        <div class="card mt-24" style="padding:20px">
+          <h3 style="margin-bottom:16px;letter-spacing:0.15em">Your Dice Color</h3>
+          <div class="color-picker-row" id="color-picker">
+            <!-- filled by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: settings (host) / read-only (others) -->
+      <div class="settings-panel">
+        <div class="card">
+          <h3 style="margin-bottom:16px;letter-spacing:0.15em">Game Settings</h3>
+          <div id="settings-readonly" class="hidden">
+            <p style="font-size:0.85rem;color:var(--text-dim)">Only the host can change settings.</p>
+            <div id="settings-display" style="margin-top:12px;font-size:0.9rem;display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+          <div id="settings-form">
+            <div class="setting-row">
+              <div>
+                <div class="setting-row__label">Game Mode</div>
+                <div class="setting-row__desc">Perudo includes wild ones &amp; Palafico</div>
+              </div>
+              <select class="setting-select" id="s-mode">
+                <option value="perudo">Perudo</option>
+                <option value="classic">Classic</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-row__label">Starting Dice</div>
+                <div class="setting-row__desc">Dice each player starts with</div>
+              </div>
+              <select class="setting-select" id="s-dice">
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5" selected>5</option>
+              </select>
+            </div>
+            <div class="setting-row" id="row-ones-wild">
+              <div>
+                <div class="setting-row__label">Ones Are Wild</div>
+                <div class="setting-row__desc">Ones count as any face value</div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="s-oneswild" checked><span class="toggle__track"></span></label>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-row__label">Spot-On Calls</div>
+                <div class="setting-row__desc">Exact bid = gain a die</div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="s-spoton" checked><span class="toggle__track"></span></label>
+            </div>
+            <div class="setting-row" id="row-palafico">
+              <div>
+                <div class="setting-row__label">Palafico Round</div>
+                <div class="setting-row__desc">When at 1 die: no wilds, bid first</div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="s-palafico" checked><span class="toggle__track"></span></label>
+            </div>
+            <div class="setting-row">
+              <div>
+                <div class="setting-row__label">Max Players</div>
+              </div>
+              <select class="setting-select" id="s-maxplayers">
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8" selected>8</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lobby-footer">
+      <div>
+        <button class="btn btn--ghost btn--sm" id="leave-btn">Leave</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span class="waiting-msg" id="waiting-msg">Waiting for players…</span>
+        <button class="btn btn--primary btn--lg hidden" id="start-btn">Start Game</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/client.js"></script>
+  <script src="js/lobby.js"></script>
+</body>
+</html>

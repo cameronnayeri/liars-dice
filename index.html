@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liar's Dice</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="notification"></div>
+
+  <main class="page index-page">
+    <div class="index-title">
+      <h1>Liar's Dice</h1>
+      <p class="subtitle">Trust no one &mdash; not even yourself</p>
+    </div>
+
+    <div class="index-panels">
+      <!-- Create Game -->
+      <div class="card card--elevated index-panel">
+        <h2>Create Game</h2>
+        <div class="name-row mt-16">
+          <label class="label" for="create-name">Your Name</label>
+          <input type="text" id="create-name" placeholder="Enter your name" maxlength="20" autocomplete="off">
+        </div>
+        <button class="btn btn--primary" id="create-btn" style="width:100%;margin-top:8px">
+          Create Lobby
+        </button>
+      </div>
+
+      <!-- Join Game -->
+      <div class="card card--elevated index-panel">
+        <h2>Join Game</h2>
+        <div class="name-row mt-16">
+          <label class="label" for="join-name">Your Name</label>
+          <input type="text" id="join-name" placeholder="Enter your name" maxlength="20" autocomplete="off">
+        </div>
+        <div class="name-row">
+          <label class="label" for="join-code">Lobby Code</label>
+          <input type="text" id="join-code" placeholder="ABCD" maxlength="4" class="code-input" autocomplete="off">
+        </div>
+        <button class="btn btn--primary" id="join-btn" style="width:100%;margin-top:8px">
+          Join Game
+        </button>
+      </div>
+    </div>
+
+    <p class="text-center text-dim" style="font-size:0.78rem;letter-spacing:0.12em;margin-top:8px">
+      Up to 8 players &bull; Perudo &amp; Classic modes &bull; No account required
+    </p>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/client.js"></script>
+  <script>
+    const sb = getSB();
+
+    const notifEl = document.getElementById('notification');
+    let notifTimer;
+    function showNotif(msg, type = 'error') {
+      notifEl.textContent = msg;
+      notifEl.className = `show notif--${type}`;
+      clearTimeout(notifTimer);
+      notifTimer = setTimeout(() => notifEl.className = '', 3200);
+    }
+
+    // Restore saved name
+    const savedName = localStorage.getItem('playerName') || '';
+    document.getElementById('create-name').value = savedName;
+    document.getElementById('join-name').value = savedName;
+
+    // Uppercase code input
+    document.getElementById('join-code').addEventListener('input', e => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+
+    // Create
+    document.getElementById('create-btn').addEventListener('click', async () => {
+      const name = document.getElementById('create-name').value.trim();
+      if (!name) return showNotif('Enter your name first');
+
+      const btn = document.getElementById('create-btn');
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+
+      try {
+        const playerId = generateId();
+        let code, attempts = 0;
+
+        // Find an unused code
+        while (attempts < 10) {
+          code = generateCode();
+          const { data } = await sb.from('lobbies').select('code').eq('code', code).maybeSingle();
+          if (!data) break;
+          attempts++;
+        }
+
+        // Insert lobby
+        const { error: lobbyErr } = await sb.from('lobbies').insert({
+          code,
+          host_player_id: playerId,
+          settings: {
+            mode: 'perudo',
+            startingDice: 5,
+            onesWild: true,
+            spotOnEnabled: true,
+            palaficoEnabled: true,
+            maxPlayers: 8
+          },
+          game_state: {},
+          status: 'waiting'
+        });
+        if (lobbyErr) throw lobbyErr;
+
+        // Insert host player (seat 0)
+        const { error: playerErr } = await sb.from('players').insert({
+          id: playerId,
+          lobby_code: code,
+          name,
+          dice_color: '#c41e3a',
+          seat_order: 0,
+          is_host: true,
+          dice_count: 5,
+          is_eliminated: false,
+          last_seen: new Date().toISOString()
+        });
+        if (playerErr) throw playerErr;
+
+        localStorage.setItem('playerName', name);
+        localStorage.setItem('playerId', playerId);
+        localStorage.setItem('lobbyCode', code);
+        window.location.href = 'lobby.html';
+      } catch (err) {
+        console.error(err);
+        showNotif('Failed to create game. Check your Supabase config.');
+        btn.disabled = false;
+        btn.textContent = 'Create Lobby';
+      }
+    });
+
+    // Join
+    document.getElementById('join-btn').addEventListener('click', async () => {
+      const name = document.getElementById('join-name').value.trim();
+      const code = document.getElementById('join-code').value.trim().toUpperCase();
+      if (!name) return showNotif('Enter your name');
+      if (code.length !== 4) return showNotif('Enter the 4-letter lobby code');
+
+      const btn = document.getElementById('join-btn');
+      btn.disabled = true;
+      btn.textContent = 'Joining…';
+
+      try {
+        // Fetch lobby
+        const { data: lobby, error: lobbyErr } = await sb.from('lobbies')
+          .select('*').eq('code', code).maybeSingle();
+        if (lobbyErr || !lobby) { showNotif('Lobby not found'); btn.disabled = false; btn.textContent = 'Join Game'; return; }
+        if (lobby.status === 'playing') { showNotif('Game already in progress'); btn.disabled = false; btn.textContent = 'Join Game'; return; }
+
+        // Count players
+        const { data: existingPlayers } = await sb.from('players')
+          .select('id, seat_order').eq('lobby_code', code);
+        if (existingPlayers.length >= lobby.settings.maxPlayers) {
+          showNotif('Lobby is full');
+          btn.disabled = false;
+          btn.textContent = 'Join Game';
+          return;
+        }
+
+        const usedSeats = existingPlayers.map(p => p.seat_order);
+        let seat = 0;
+        while (usedSeats.includes(seat)) seat++;
+
+        const playerId = generateId();
+        const { error: playerErr } = await sb.from('players').insert({
+          id: playerId,
+          lobby_code: code,
+          name,
+          dice_color: '#c41e3a',
+          seat_order: seat,
+          is_host: false,
+          dice_count: 5,
+          is_eliminated: false,
+          last_seen: new Date().toISOString()
+        });
+        if (playerErr) throw playerErr;
+
+        localStorage.setItem('playerName', name);
+        localStorage.setItem('playerId', playerId);
+        localStorage.setItem('lobbyCode', code);
+        window.location.href = 'lobby.html';
+      } catch (err) {
+        console.error(err);
+        showNotif('Failed to join. Try again.');
+        btn.disabled = false;
+        btn.textContent = 'Join Game';
+      }
+    });
+
+    // Enter key
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const focused = document.activeElement?.id || '';
+        if (focused.startsWith('create')) document.getElementById('create-btn').click();
+        else if (focused.startsWith('join')) document.getElementById('join-btn').click();
+      }
+    });
+  </script>
+</body>
+</html>
