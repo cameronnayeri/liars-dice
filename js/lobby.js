@@ -2,6 +2,12 @@
 //  Lobby page logic
 // ============================================================
 
+const BOT_NAMES  = ['Petrov','Volkov','Sokolov','Kozlov','Lebedev','Morozov','Novikov','Popov'];
+const BOT_COLORS = ['#8b1a1a','#1a4a8b','#2a6a2a','#6a2a8a','#8a6a1a','#1a6a6a','#8a3a1a','#4a1a6a'];
+
+function getBotList()     { return JSON.parse(localStorage.getItem('botPlayers') || '[]'); }
+function saveBotList(arr) { localStorage.setItem('botPlayers', JSON.stringify(arr)); }
+
 const PRESET_COLORS = [
   { name: 'Crimson',   hex: '#c41e3a' },
   { name: 'Ember',     hex: '#d05010' },
@@ -192,12 +198,13 @@ function renderFooter() {
   const waitMsg  = document.getElementById('waiting-msg');
 
   if (isHost) {
+    document.getElementById('add-bot-lobby-btn').classList.remove('hidden');
     const canStart = players.length >= 2;
     startBtn.classList.toggle('hidden', false);
     startBtn.disabled = !canStart;
     waitMsg.textContent = canStart
-      ? 'Ready to begin'
-      : `Need at least 2 players (${players.length}/2)`;
+      ? `Ready to begin (${players.length} players)`
+      : `Need at least 2 players — add a bot or wait (${players.length}/2)`;
   } else {
     startBtn.classList.add('hidden');
     waitMsg.textContent = `Waiting for host to start… (${players.length} player${players.length !== 1 ? 's' : ''})`;
@@ -218,6 +225,39 @@ function setupSettings() {
   });
 
   document.getElementById('start-btn').addEventListener('click', startGame);
+  document.getElementById('add-bot-lobby-btn').addEventListener('click', addLobbyBot);
+}
+
+async function addLobbyBot() {
+  if (players.length >= (lobby?.settings?.maxPlayers || 8)) {
+    return showNotif('Lobby is full');
+  }
+  const usedNames = players.map(p => p.name);
+  const availName = BOT_NAMES.find(n => !usedNames.includes(`Bot ${n}`));
+  const name  = availName ? `Bot ${availName}` : `Bot ${players.length}`;
+  const color = BOT_COLORS[getBotList().length % BOT_COLORS.length];
+
+  const usedSeats = players.map(p => p.seat_order);
+  let seat = 0;
+  while (usedSeats.includes(seat)) seat++;
+
+  const botId = generateId();
+  const { error } = await sb.from('players').insert({
+    id: botId,
+    lobby_code: lobbyCode,
+    name,
+    dice_color: color,
+    seat_order: seat,
+    is_host: false,
+    dice_count: lobby?.settings?.startingDice || 5,
+    is_eliminated: false,
+    last_seen: new Date().toISOString()
+  });
+
+  if (error) return showNotif('Failed to add bot');
+
+  saveBotList([...getBotList(), botId]);
+  showNotif(`${name} joined`, 'success');
 }
 
 async function saveSettings() {
