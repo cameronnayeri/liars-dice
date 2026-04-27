@@ -923,9 +923,12 @@ function renderTablePlayers() {
   const n      = sorted.length;
 
   let activePlayerPos = null;
+  // Always put the local player at the bottom center (angle = π/2)
+  const myIndex = sorted.findIndex(p => p.id === myPlayerId);
+  const angleOffset = myIndex >= 0 ? Math.PI - (myIndex / n) * 2 * Math.PI : 0;
 
   sorted.forEach((player, i) => {
-    const angle = (i / n) * 2 * Math.PI - Math.PI / 2; // start top, clockwise
+    const angle = (i / n) * 2 * Math.PI - Math.PI / 2 + angleOffset;
     const x = cx + rx * Math.cos(angle);
     const y = cy + ry * Math.sin(angle);
 
@@ -954,21 +957,11 @@ function renderTablePlayers() {
     ).join('');
 
     const isMe = player.id === myPlayerId;
-    const bid = gs?.currentBid;
-    const onesWildNow = lobby?.settings?.onesWild && lobby?.settings?.mode === 'perudo' && !gs?.palaficoActive;
-    let myDiceHtml = '';
-    if (isMe && myDice?.length) {
-      myDiceHtml = `<div class="tpc__my-dice">${myDice.map(v => {
-        const hl = bid ? (v === bid.face || (onesWildNow && bid.face !== 1 && v === 1)) : false;
-        return makeDieHTML(v, player.dice_color, { size: 28, highlight: hl });
-      }).join('')}</div>`;
-    }
     card.innerHTML = `
       ${isMe ? '<div class="tpc__you">You</div>' : ''}
       <div class="tpc__name">${escapeHtml(player.name)}${isBotPlayer(player.id) ? ' 🤖' : ''}</div>
       <div class="tpc__dice-count">${player.is_eliminated ? '☠ Out' : `${player.dice_count} ${player.dice_count === 1 ? 'die' : 'dice'}`}</div>
       <div class="tpc__pips">${miniPips}</div>
-      ${myDiceHtml}
       ${isCurrentTurn ? `<div class="tpc__turn-indicator" style="color:${player.dice_color}">▲ their turn</div>` : ''}
     `;
     container.appendChild(card);

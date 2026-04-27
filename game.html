@@ -26,10 +26,10 @@
       </div>
     </header>
 
-    <!-- Dice tracker bar -->
-    <div id="dice-tracker" class="dice-tracker"></div>
-
     <div class="game-main">
+      <!-- Dice tracker — above the table -->
+      <div id="dice-tracker" class="dice-tracker"></div>
+
       <!-- Circular table -->
       <div class="game-table-wrapper">
         <div class="game-table" id="game-table">
@@ -49,65 +49,58 @@
         </div>
       </div>
 
-      <!-- Your dice + controls -->
-      <div class="your-dice-section">
-        <div class="your-dice-section__label">Your Dice</div>
-        <div class="your-dice-row" id="your-dice-row"></div>
-
-        <div class="bid-controls" id="bid-controls">
-          <div class="bid-inputs">
-            <div class="count-input">
-              <span class="count-input__label">Count</span>
-              <div class="count-spinner">
-                <button class="count-spinner__btn" id="count-dec">−</button>
-                <span class="count-spinner__val" id="count-val">1</span>
-                <button class="count-spinner__btn" id="count-inc">+</button>
+      <!-- Player controls — below the table -->
+      <div class="player-controls">
+        <!-- Left: dice + bid/waiting -->
+        <div class="player-controls__left">
+          <div class="your-dice-row" id="your-dice-row"></div>
+          <div class="bid-controls" id="bid-controls">
+            <div class="bid-inputs">
+              <div class="count-input">
+                <span class="count-input__label">Count</span>
+                <div class="count-spinner">
+                  <button class="count-spinner__btn" id="count-dec">−</button>
+                  <span class="count-spinner__val" id="count-val">1</span>
+                  <button class="count-spinner__btn" id="count-inc">+</button>
+                </div>
+              </div>
+              <div class="count-input">
+                <span class="count-input__label">Face</span>
+                <div class="face-selector" id="face-selector">
+                  <button class="face-btn active" data-face="2">⚁</button>
+                  <button class="face-btn" data-face="3">⚂</button>
+                  <button class="face-btn" data-face="4">⚃</button>
+                  <button class="face-btn" data-face="5">⚄</button>
+                  <button class="face-btn" data-face="6">⚅</button>
+                  <button class="face-btn" data-face="1">⚀</button>
+                </div>
               </div>
             </div>
-            <div class="count-input">
-              <span class="count-input__label">Face</span>
-              <div class="face-selector" id="face-selector">
-                <button class="face-btn active" data-face="2">⚁</button>
-                <button class="face-btn" data-face="3">⚂</button>
-                <button class="face-btn" data-face="4">⚃</button>
-                <button class="face-btn" data-face="5">⚄</button>
-                <button class="face-btn" data-face="6">⚅</button>
-                <button class="face-btn" data-face="1">⚀</button>
-              </div>
+            <div class="action-btns" id="action-btns">
+              <button class="btn btn--primary" id="bid-btn">Raise Bid</button>
+              <button class="btn btn--liar hidden" id="liar-btn">☠ LIAR!</button>
+              <button class="btn btn--spoton hidden" id="spoton-btn">🎯 Spot On!</button>
+            </div>
+            <div id="bid-error" class="hidden" style="color:var(--red-bright);font-size:0.8rem;letter-spacing:0.08em"></div>
+            <div class="skip-btn-wrap" id="skip-btn-wrap">
+              <button class="btn btn--danger btn--sm" id="skip-btn">⏭ Skip Player (Host)</button>
             </div>
           </div>
-          <div class="action-btns" id="action-btns">
-            <button class="btn btn--primary" id="bid-btn">Raise Bid</button>
-            <button class="btn btn--liar hidden" id="liar-btn">☠ LIAR!</button>
-            <button class="btn btn--spoton hidden" id="spoton-btn">🎯 Spot On!</button>
-          </div>
-          <div id="bid-error" class="hidden" style="color:var(--red-bright);font-size:0.8rem;letter-spacing:0.08em"></div>
-          <div class="skip-btn-wrap" id="skip-btn-wrap">
-            <button class="btn btn--danger btn--sm" id="skip-btn">⏭ Skip Player (Host)</button>
+          <div id="waiting-panel" class="hidden" style="padding:6px 0;color:var(--text-dim);font-size:0.85rem;letter-spacing:0.1em;font-family:var(--font-title)">
+            Waiting for your turn…
           </div>
         </div>
 
-        <div id="waiting-panel" class="hidden" style="padding:8px 0;color:var(--text-dim);font-size:0.85rem;letter-spacing:0.1em;font-family:var(--font-title)">
-          Waiting for your turn…
-        </div>
-
-        <!-- Emote bar — always visible -->
-        <div style="margin-top:10px">
-          <div style="font-size:0.65rem;letter-spacing:0.18em;text-transform:uppercase;color:var(--text-muted);font-family:var(--font-title);margin-bottom:6px">Emotes</div>
-          <div class="emote-picker" id="emote-picker" style="display:flex;flex-wrap:wrap;gap:4px">
-            <button class="emote-btn" data-emote="💀">💀</button>
-            <button class="emote-btn" data-emote="👻">👻</button>
-            <button class="emote-btn" data-emote="😂">😂</button>
-            <button class="emote-btn" data-emote="😱">😱</button>
-            <button class="emote-btn" data-emote="🔥">🔥</button>
-            <button class="emote-btn" data-emote="👁️">👁️</button>
-            <button class="emote-btn" data-emote="🤔">🤔</button>
-            <button class="emote-btn" data-emote="🎯">🎯</button>
-            <button class="emote-btn" data-emote="🤡">🤡</button>
-            <button class="emote-btn" data-emote="😈">😈</button>
-            <button class="emote-btn" data-emote="🍀">🍀</button>
-            <button class="emote-btn" data-emote="☠️">☠️</button>
-          </div>
+        <!-- Right: emotes as circles -->
+        <div class="emote-picker" id="emote-picker">
+          <button class="emote-btn" data-emote="💀">💀</button>
+          <button class="emote-btn" data-emote="😂">😂</button>
+          <button class="emote-btn" data-emote="😱">😱</button>
+          <button class="emote-btn" data-emote="🔥">🔥</button>
+          <button class="emote-btn" data-emote="👁️">👁️</button>
+          <button class="emote-btn" data-emote="🤔">🤔</button>
+          <button class="emote-btn" data-emote="😈">😈</button>
+          <button class="emote-btn" data-emote="☠️">☠️</button>
         </div>
       </div>
 
