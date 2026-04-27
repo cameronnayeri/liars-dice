@@ -962,7 +962,7 @@ function renderTablePlayers() {
       <div class="tpc__name">${escapeHtml(player.name)}${isBotPlayer(player.id) ? ' 🤖' : ''}</div>
       <div class="tpc__dice-count">${player.is_eliminated ? '☠ Out' : `${player.dice_count} ${player.dice_count === 1 ? 'die' : 'dice'}`}</div>
       <div class="tpc__pips">${miniPips}</div>
-      ${isCurrentTurn ? `<div class="tpc__turn-indicator" style="color:${player.dice_color}">▲ their turn</div>` : ''}
+      ${isCurrentTurn ? `<div class="tpc__turn-indicator" style="color:${isMe ? 'var(--red-bright)' : player.dice_color}">${isMe ? '▲ your turn' : '▲ their turn'}</div>` : ''}
     `;
     container.appendChild(card);
   });

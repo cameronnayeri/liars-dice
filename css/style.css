@@ -503,7 +503,8 @@ select option { background: var(--bg-elevated); }
   padding: 0;
   max-width: 100%;
   width: 100%;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -742,19 +743,19 @@ select option { background: var(--bg-elevated); }
 .player-controls {
   grid-column: 1;
   grid-row: 3;
-  padding: 12px 20px;
+  padding: 10px 20px;
   background: var(--bg-dark);
   border-top: 1px solid var(--border-dim);
   display: flex;
-  align-items: flex-start;
-  gap: 20px;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
 }
+.player-controls > * { flex-shrink: 0; }
 .player-controls__left {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-width: 0;
+  gap: 8px;
 }
 .your-dice-row {
   display: flex;
@@ -1236,11 +1237,11 @@ select option { background: var(--bg-elevated); }
 /* ========================================================== */
 .game-main {
   flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 1fr 260px;
   grid-template-rows: auto 1fr auto;
   overflow: hidden;
-  min-height: 0;
 }
 @media (max-width: 780px) {
   .game-main { grid-template-columns: 1fr; }
@@ -1329,14 +1330,16 @@ select option { background: var(--bg-elevated); }
   padding: 12px 24px 8px;
   overflow: hidden;
   min-height: 0;
+  min-width: 0;
 }
 
 .game-table {
   position: relative;
-  width: 640px;
-  height: 420px;
-  max-width: 100%;
-  flex-shrink: 0;
+  /* Scale to fill available space, max 640×420 */
+  width: min(640px, 100%);
+  aspect-ratio: 640 / 420;
+  max-height: 100%;
+  flex-shrink: 1;
 }
 
 /* The felt surface */
