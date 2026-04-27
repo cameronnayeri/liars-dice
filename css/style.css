@@ -950,13 +950,12 @@ select option { background: var(--bg-elevated); }
   flex-shrink: 0;
 }
 .die--highlight {
-  border-color: var(--red-bright) !important;
-  box-shadow: 0 0 20px var(--red-glow), 0 0 40px rgba(196,30,58,0.2) !important;
+  box-shadow: 0 0 0 3px rgba(0,230,110,0.85), 0 0 16px rgba(0,210,90,0.55), 0 0 36px rgba(0,180,70,0.25) !important;
   animation: diehighlight 1.2s ease-in-out infinite alternate;
 }
 @keyframes diehighlight {
-  from { box-shadow: 0 0 14px var(--red-glow); }
-  to   { box-shadow: 0 0 30px rgba(255,32,64,0.7), 0 0 60px rgba(196,30,58,0.25); }
+  from { box-shadow: 0 0 0 3px rgba(0,220,100,0.7), 0 0 12px rgba(0,200,80,0.4); }
+  to   { box-shadow: 0 0 0 4px rgba(60,255,140,1), 0 0 24px rgba(0,230,100,0.7), 0 0 48px rgba(0,200,80,0.3); }
 }
 .die--facedown {
   background: #0e0812;
@@ -1238,6 +1237,77 @@ select option { background: var(--bg-elevated); }
   .game-log-panel { display: none; }
 }
 
+/* Dice tracker bar */
+.dice-tracker {
+  padding: 8px 20px 6px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border-dim);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 44px;
+}
+.dice-tracker__label {
+  font-family: var(--font-title);
+  font-size: 0.65rem;
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dice-tracker__dice {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.tracker-die {
+  width: 24px; height: 24px;
+  border-radius: 5px;
+  background: #1a0e0e;
+  border: 1.5px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  grid-template-rows: repeat(3,1fr);
+  padding: 3px;
+  gap: 2px;
+  flex-shrink: 0;
+  transition: box-shadow 0.3s;
+}
+.tracker-die.tracker-die--bid {
+  border-color: rgba(0,230,110,0.7);
+  box-shadow: 0 0 0 2px rgba(0,220,100,0.6), 0 0 10px rgba(0,200,80,0.4);
+  animation: trackerglow 1.2s ease-in-out infinite alternate;
+}
+@keyframes trackerglow {
+  from { box-shadow: 0 0 0 2px rgba(0,220,100,0.5), 0 0 8px rgba(0,200,80,0.3); }
+  to   { box-shadow: 0 0 0 3px rgba(60,255,140,0.9), 0 0 14px rgba(0,230,100,0.6); }
+}
+.tracker-pip { border-radius: 50%; }
+.tracker-pip--on  { background: var(--text-dim); }
+.tracker-pip--bid { background: #00e870; }
+.tracker-pip--off { background: transparent; }
+
+/* Reveal bid banner */
+.reveal-bid-banner {
+  font-family: var(--font-title);
+  font-size: 1.4rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: var(--gold);
+  background: rgba(200,160,48,0.08);
+  border: 1px solid rgba(200,160,48,0.3);
+  border-radius: var(--radius-lg);
+  padding: 10px 32px;
+  margin-bottom: 28px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.5s 0.4s;
+}
+.reveal-bid-banner.show { opacity: 1; }
+
 .game-table-wrapper {
   grid-column: 1;
   grid-row: 1;
@@ -1281,14 +1351,26 @@ select option { background: var(--bg-elevated); }
   border: 1px solid rgba(255,255,255,0.03);
 }
 
-/* Spotlight beam overlay (conic gradient, host JS rotates) */
+/* Spotlight beam — tip pinned at top-center, cone rotates toward active player */
 .spotlight-beam {
   position: absolute;
-  inset: 18px;
-  border-radius: 50% / 46%;
+  top: 0;
+  left: 50%;
+  width: 340px;
+  height: 110%;
+  transform-origin: 50% 0;
+  transform: translateX(-50%);
   pointer-events: none;
   z-index: 5;
-  transition: background 0.55s ease;
+  transition: transform 0.55s ease;
+  background: linear-gradient(
+    180deg,
+    rgba(255,210,80,0.0)  0%,
+    rgba(255,210,80,0.11) 15%,
+    rgba(255,210,80,0.07) 50%,
+    transparent           85%
+  );
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
 }
 
 /* Players container */
@@ -1376,6 +1458,25 @@ select option { background: var(--bg-elevated); }
   from { opacity: 0.6; }
   to   { opacity: 1; }
 }
+
+/* My dice inside table card */
+.tpc__my-dice {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.tpc__my-dice .die {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 6px !important;
+  padding: 3px !important;
+  gap: 2px !important;
+}
+.tpc__my-dice .pip { width: 4px !important; height: 4px !important; }
 
 /* Table center content */
 .table-center {

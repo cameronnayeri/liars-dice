@@ -260,7 +260,9 @@ async function enterRevealing(gs) {
   const resultEl   = document.getElementById('reveal-result');
   const hintEl     = document.getElementById('reveal-close-hint');
 
+  const bannerEl = document.getElementById('reveal-bid-banner');
   titleEl.classList.remove('show');
+  if (bannerEl) { bannerEl.classList.remove('show'); bannerEl.textContent = ''; }
   playersEl.innerHTML = '';
   tallyEl.classList.remove('show');
   resultEl.className = 'reveal-result';
@@ -270,9 +272,14 @@ async function enterRevealing(gs) {
   overlay.classList.add('active');
   await delay(400);
   titleEl.classList.add('show');
-  await delay(1100);
+  await delay(700);
 
   const { revealData, currentBid, roundResult, palaficoActive } = gs;
+  if (bannerEl && currentBid) {
+    bannerEl.textContent = `The Call: ${currentBid.count} × ${FACE_UNICODE[currentBid.face]} ${FACE_NAME[currentBid.face]}`;
+    bannerEl.classList.add('show');
+  }
+  await delay(500);
   const onesWild = lobby.settings.onesWild && lobby.settings.mode === 'perudo' && !palaficoActive;
 
   const order = gs.playerOrder || [];
@@ -828,7 +835,6 @@ function wireUI() {
     const btn = e.target.closest('.emote-btn');
     if (!btn) return;
     const emote = btn.dataset.emote;
-    document.getElementById('emote-picker').style.display = 'none';
     SoundEngine.emote();
     addLog(`${emote} ${escapeHtml(myPlayer?.name || 'You')}`, 'emote');
     showEmote(myPlayerId, emote);
@@ -884,6 +890,7 @@ function renderAll() {
   renderHeader();
   renderTablePlayers();
   renderBidDisplay(lobby?.game_state?.currentBid, lobby?.game_state);
+  renderDiceTracker();
   renderYourDice(myDice);
   updateTurnUI(lobby?.game_state);
   if (isDevMode()) renderDevPanel();
@@ -915,7 +922,7 @@ function renderTablePlayers() {
   const sorted = [...players].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
   const n      = sorted.length;
 
-  let activeAngle = null;
+  let activePlayerPos = null;
 
   sorted.forEach((player, i) => {
     const angle = (i / n) * 2 * Math.PI - Math.PI / 2; // start top, clockwise
@@ -926,7 +933,7 @@ function renderTablePlayers() {
       gs.playerOrder?.[gs.currentPlayerIndex] === player.id;
     const isActive = n <= 1 || isCurrentTurn;
 
-    if (isCurrentTurn) activeAngle = angle;
+    if (isCurrentTurn) activePlayerPos = { x, y };
 
     const card = document.createElement('div');
     card.className = [
@@ -946,37 +953,43 @@ function renderTablePlayers() {
       `<div class="tpc__pip" style="background:${player.dice_color}"></div>`
     ).join('');
 
+    const isMe = player.id === myPlayerId;
+    const bid = gs?.currentBid;
+    const onesWildNow = lobby?.settings?.onesWild && lobby?.settings?.mode === 'perudo' && !gs?.palaficoActive;
+    let myDiceHtml = '';
+    if (isMe && myDice?.length) {
+      myDiceHtml = `<div class="tpc__my-dice">${myDice.map(v => {
+        const hl = bid ? (v === bid.face || (onesWildNow && bid.face !== 1 && v === 1)) : false;
+        return makeDieHTML(v, player.dice_color, { size: 28, highlight: hl });
+      }).join('')}</div>`;
+    }
     card.innerHTML = `
-      ${player.id === myPlayerId ? '<div class="tpc__you">You</div>' : ''}
+      ${isMe ? '<div class="tpc__you">You</div>' : ''}
       <div class="tpc__name">${escapeHtml(player.name)}${isBotPlayer(player.id) ? ' 🤖' : ''}</div>
       <div class="tpc__dice-count">${player.is_eliminated ? '☠ Out' : `${player.dice_count} ${player.dice_count === 1 ? 'die' : 'dice'}`}</div>
       <div class="tpc__pips">${miniPips}</div>
+      ${myDiceHtml}
       ${isCurrentTurn ? `<div class="tpc__turn-indicator" style="color:${player.dice_color}">▲ their turn</div>` : ''}
     `;
     container.appendChild(card);
   });
 
   // Update spotlight
-  updateSpotlight(activeAngle);
+  updateSpotlight(activePlayerPos);
 }
 
-function updateSpotlight(angle) {
-  const beam = document.getElementById('spotlight-beam');
+function updateSpotlight(playerPos) {
+  const beam    = document.getElementById('spotlight-beam');
+  const tableEl = document.getElementById('game-table');
   if (!beam) return;
-  if (angle === null) { beam.style.background = 'none'; return; }
+  if (!playerPos) { beam.style.transform = 'translateX(-50%)'; return; }
 
-  // Convert math angle (radians, +x right) to CSS conic angle (degrees, clockwise from top)
-  const cssDeg = ((angle * 180 / Math.PI) + 90 + 360) % 360;
-  const hw = 22; // half-width of beam in degrees
-  beam.style.background = `conic-gradient(
-    from ${cssDeg - hw - 3}deg at 50% 50%,
-    transparent          0deg,
-    rgba(255,210,80,0.04) ${3}deg,
-    rgba(255,210,80,0.09) ${hw}deg,
-    rgba(255,210,80,0.04) ${hw + 3}deg,
-    transparent          ${hw * 2 + 6}deg,
-    transparent          360deg
-  )`;
+  const cx = (tableEl?.offsetWidth || 640) / 2;
+  // Angle from straight-down (0°), clockwise = positive
+  const dx = playerPos.x - cx;
+  const dy = playerPos.y; // apex is at y=0 (top of table)
+  const rotDeg = Math.atan2(dx, dy) * 180 / Math.PI;
+  beam.style.transform = `translateX(-50%) rotate(${rotDeg}deg)`;
 }
 
 function renderBidDisplay(bid, gs) {
@@ -996,6 +1009,46 @@ function renderBidDisplay(bid, gs) {
   }
   const bidder = players.find(p => p.id === bid.playerId);
   byEl.textContent = bidder ? `by ${escapeHtml(bidder.name)}` : '';
+}
+
+function renderDiceTracker() {
+  const el = document.getElementById('dice-tracker');
+  if (!el) return;
+  const gs  = lobby?.game_state;
+  const bid = gs?.currentBid;
+  const activePlayers = players.filter(p => !p.is_eliminated);
+  const total = activePlayers.reduce((s, p) => s + (p.dice_count || 0), 0);
+
+  if (!total) { el.innerHTML = ''; return; }
+
+  const bidCount = bid?.count || 0;
+  const bidFaceVal = bid?.face;
+
+  // Build pip layout for a given face value (3x3 grid of 9 cells)
+  function pipRow(faceVal) {
+    return (PIP_MAP[faceVal] || PIP_MAP[1]).map((on, idx) =>
+      `<div class="tracker-pip ${on ? 'tracker-pip--bid' : 'tracker-pip--off'}"></div>`
+    ).join('');
+  }
+
+  let html = `<div class="dice-tracker__label">In play</div><div class="dice-tracker__dice">`;
+  for (let i = 0; i < total; i++) {
+    const isBidDie = bid && i < bidCount;
+    html += `<div class="tracker-die${isBidDie ? ' tracker-die--bid' : ''}">`;
+    if (isBidDie && bidFaceVal) {
+      html += pipRow(bidFaceVal);
+    } else {
+      html += Array(9).fill('<div class="tracker-pip tracker-pip--off"></div>').join('');
+    }
+    html += `</div>`;
+  }
+  html += `</div>`;
+
+  if (bid) {
+    html += `<div style="font-family:var(--font-title);font-size:0.8rem;color:var(--gold);letter-spacing:0.1em;white-space:nowrap">${bid.count} × ${FACE_UNICODE[bid.face]} ${FACE_NAME[bid.face]}</div>`;
+  }
+
+  el.innerHTML = html;
 }
 
 function renderYourDice(dice, animate = false) {
